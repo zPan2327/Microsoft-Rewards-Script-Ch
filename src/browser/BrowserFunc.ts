@@ -14,12 +14,30 @@ import type { AppEarnablePoints, BrowserEarnablePoints } from '../interface/Poin
 import type { AppDashboardData } from '../interface/AppDashBoardData'
 import { detectFlyoutBotWarning, mapFlyoutToDashboard, type RewardsFlyoutData } from './FlyoutDashboard'
 
+/**
+ * rewards.bing.com 旧版接口 getuserinfo 对 _U cookie 敏感：带上它会被 302 跳到登录页，
+ * 响应变成 HTML，bot 侧报 Dashboard data missing from API response，
+ * 之后整个 worker 永久降级到 flyout 兜底，punchCards / morePromotions 全空，真实少拿积分。
+ * 实测 4 账号 x 桌面/移动 = 8 组会话：带 _U 全部 302 且无 dashboard；
+ * 去掉 _U 全部 200 且 dashboard 完整（punchCards=4）。
+ * 该 cookie 对其它 bing 请求无害（/earn 带与不带都是 200），因此只在本接口剔除。
+ */
+const LEGACY_DASHBOARD_BLOCKED_COOKIES = new Set(['_u'])
+
+// 主接口连续失败后进入 flyout 兜底；冷却结束会自动重试主接口，
+// 避免像过去那样一次失败就把整个 worker 永久钉死在兜底分支上。
+const FLYOUT_FALLBACK_COOLDOWN_MS = 60_000
+
+function withoutLegacyBlockedCookies(cookies: Cookie[]): Cookie[] {
+    return cookies.filter(cookie => !LEGACY_DASHBOARD_BLOCKED_COOKIES.has(cookie.name.toLowerCase()))
+}
+
 export default class BrowserFunc {
     private bot: MicrosoftRewardsBot
 
     private rewardsDeploymentId = ''
 
-    private useFlyoutDashboardFallback = false
+    private flyoutDashboardFallbackUntil = 0
 
     private botMetricsLoggedPlatforms = new Set<string>()
 
@@ -32,7 +50,7 @@ export default class BrowserFunc {
         delete fingerprintHeaders['Cookie']
         delete fingerprintHeaders['cookie']
 
-        if (!this.useFlyoutDashboardFallback) {
+        if (Date.now() >= this.flyoutDashboardFallbackUntil) {
             let primaryError: unknown
 
             for (let attempt = 1; attempt <= 2; attempt++) {
@@ -42,7 +60,9 @@ export default class BrowserFunc {
                         method: 'GET',
                         headers: {
                             ...fingerprintHeaders,
-                            Cookie: this.buildCookieHeader(this.getCachedCookies(cookies, URLs.rewards.userInfoApi)),
+                            Cookie: this.buildCookieHeader(
+                                withoutLegacyBlockedCookies(this.getCachedCookies(cookies, URLs.rewards.userInfoApi))
+                            ),
                             Referer: URLs.rewards.referer,
                             Origin: URLs.rewards.origin
                         },
@@ -69,7 +89,7 @@ export default class BrowserFunc {
                 }
             }
 
-            this.useFlyoutDashboardFallback = true
+            this.flyoutDashboardFallbackUntil = Date.now() + FLYOUT_FALLBACK_COOLDOWN_MS
             this.bot.logger.warn(
                 this.bot.isMobile,
                 'GET-DASHBOARD-DATA',
