@@ -3,6 +3,9 @@
 本仓库 fork 自 [chiihero/Microsoft-Rewards-Script](https://github.com/chiihero/Microsoft-Rewards-Script) 的 `V4-china` 分支，
 在上游基础上追加了少量修复。从上游拉取新版本、或重新构建镜像之后，请对照本文件确认补丁是否还在。
 
+> fork 地址：`git@github.com:zPan2327/Microsoft-Rewards-Script-Ch.git`（分支 `V4-china`），
+> 本地 `V4-china` 已把上游分支指向 `fork/V4-china`，日常 `git pull` / `git push` 都是对 fork 操作。
+
 > 补丁全部改在 `src/` 源码里，所以只要源码没被上游覆盖，重新执行 `docker compose up -d --build` 依然带着修复。
 > `dist/` 在 `.gitignore` 中，属于构建产物，不需要提交。
 
@@ -15,6 +18,7 @@
 - [从上游同步后怎么处理](#从上游同步后怎么处理)
 - [本机部署提示](#本机部署提示)
 - [验证补丁确实生效](#验证补丁确实生效)
+- [合并上游后 dist 会落后于 src](#合并上游后-dist-会落后于-src)
 
 ---
 
@@ -182,17 +186,24 @@ if (Date.now() >= this.flyoutDashboardFallbackUntil) {
 ## 从上游同步后怎么处理
 
 ```bash
-git remote add upstream https://github.com/chiihero/Microsoft-Rewards-Script.git
+# 1) 先拉本仓库的 fork（本地 V4-china 已跟踪 fork/V4-china）
+git pull
+
+# 2) 再合并上游新提交。本机访问 github 的 https 会超时，必须走 SSH：
+git remote add upstream git@github.com:chiihero/Microsoft-Rewards-Script.git
 git fetch upstream
 git merge upstream/V4-china
 
-# 确认补丁还在
+# 3) 确认补丁还在
 grep -n withoutLegacyBlockedCookies src/browser/BrowserFunc.ts
 grep -n flyoutDashboardFallbackUntil src/browser/BrowserFunc.ts
 
-# 重新编译并重启
+# 4) 重新编译并重启
 npm run build
 docker compose up -d --build
+
+# 5) 推回 fork，让它保持「上游最新 + 补丁」
+git push
 ```
 
 如果 `grep` 没有输出，说明上游把这块重写了，按上面「如果上游以后改了这里」重新应用一次。
@@ -241,3 +252,13 @@ docker exec microsoft-rewards-script md5sum /usr/src/microsoft-rewards-script/di
 ```
 
 后者一旦出现，说明这次运行仍然走了兜底分支，`punchCards` / `morePromotions` 会是空的，任务会被整段跳过。
+
+---
+
+## 合并上游后 dist 会落后于 src
+
+执行 `git merge upstream/V4-china` 之后，`src/` 里已经有上游的新修复，但 `dist/` 还是上一次编译出来的产物。
+容器只挂载了 `dist/browser/BrowserFunc.js` 这一个文件，所以上游的其它改动不会自动生效。
+
+要么等下一次 `docker compose up -d --build`（会重新编译，顺带带上上游修复），要么现在就重建。
+**不要在运行中重建**：正在跑的 bot 进程还有懒加载的模块，重写 `dist/` 可能让它读到半个文件。
