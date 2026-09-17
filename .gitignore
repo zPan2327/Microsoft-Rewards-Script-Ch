@@ -22,3 +22,11 @@ note
 /.zcode/
 /scripts/tests
 /docs
+
+# 运行时目录：容器把凭证/配置写到这里（compose 挂载 ./clawbot、./config）
+# clawbot 目录含 bot token，config 目录含账号相关运行时配置，严禁提交
+/clawbot/
+/config/
+/patches/
+/compose.override.yaml
+/*.bak-*

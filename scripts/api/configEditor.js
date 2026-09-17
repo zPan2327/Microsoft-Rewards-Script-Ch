@@ -254,7 +254,16 @@ export function readConfig(projectRoot) {
 }
 
 export function writeConfigAtomic(projectRoot, cfg) {
-    const target = resolveConfigPath(projectRoot)
+    // Follow a symlinked config.json before writing. The official Docker entrypoint
+    // links <root>/config.json -> <root>/config/config.json; renameSync() below replaces
+    // the link itself, which silently forks config.json away from the bind-mounted file
+    // so API writes land in the container layer and vanish on restart.
+    let target = resolveConfigPath(projectRoot)
+    try {
+        target = fs.realpathSync(target)
+    } catch {
+        // target does not exist yet - keep the resolved candidate path
+    }
     if (fs.existsSync(target)) {
         try {
             fs.copyFileSync(target, `${target}.bak`)

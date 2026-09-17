@@ -14,6 +14,8 @@
 ## 目录
 
 - [补丁 1：修复旧版接口被 `_U` cookie 打成 302，导致仪表板数据降级](#补丁-1修复旧版接口被-_u-cookie-打成-302导致仪表板数据降级)
+- [补丁 2：Control API 写 config.json 时跟随软链接](#补丁-2control-api-写-configjson-时跟随软链接)
+- [补丁 3：ConfigSchema 补上 webhook.serverchan](#补丁-3configschema-补上-webhookserverchan)
 - [补丁清单速查](#补丁清单速查)
 - [从上游同步后怎么处理](#从上游同步后怎么处理)
 - [本机部署提示](#本机部署提示)
@@ -175,11 +177,126 @@ if (Date.now() >= this.flyoutDashboardFallbackUntil) {
 
 ---
 
+## 补丁 2：Control API 写 config.json 时跟随软链接
+
+- **文件**：`scripts/api/configEditor.js`（函数 `writeConfigAtomic`）
+- **影响**：仪表盘「配置」页保存配置。不修的话，保存的配置永远不生效。
+
+### 现象
+
+在仪表盘点保存，界面提示成功（`PUT` / `PATCH /config` 返回 `ok:true`），但：
+
+1. 机器人重启后改动全部消失；
+2. 宿主机 `./config/config.json` 的 inode 与 mtime 从头到尾没变过。
+
+### 根因
+
+Docker 官方 entrypoint 为了让应用能在项目根读到配置，建了一个软链接：
+
+    # scripts/docker/entrypoint.sh 第 78 行
+    ln -sf "$CONFIG_FILE" "$SCRIPT_DIR/config.json"
+    # 即 <root>/config.json -> <root>/config/config.json
+
+而 `writeConfigAtomic()` 用的是「写临时文件 + rename」的原子写法：
+
+    const tmp = target + "." + process.pid + ".tmp"
+    fs.writeFileSync(tmp, JSON.stringify(cfg, null, 2))
+    fs.renameSync(tmp, target)   # <-- 问题在这里
+
+`renameSync` 替换的是目录项本身，并不会写穿软链接。于是：
+
+- 第一次保存：根目录的 `config.json` 软链接**被替换成普通文件**，写进容器可写层；
+- bind mount 里的 `config/config.json` 完全没被碰过；
+- 容器一重启，entrypoint 重跑 `ln -sf` 重建软链接，于是又指回那份从未被修改过的挂载文件，刚保存的内容全部消失。
+
+而且根目录已经是普通文件了，后续保存也一直只改容器内那一份，形成「假保存」。
+
+### 改动内容
+
+写入前先把目标解析成软链接的真实路径：
+
+    export function writeConfigAtomic(projectRoot, cfg) {
+        let target = resolveConfigPath(projectRoot)
+        try {
+            target = fs.realpathSync(target)
+        } catch {
+            // target does not exist yet - keep the resolved candidate path
+        }
+        ...
+    }
+
+`realpathSync` 对普通文件是幂等的（返回自身），不影响非软链接场景。
+
+### 验证
+
+    F=/vol1/1000/A-docker/Microsoft-Rewards-Script/config/config.json
+    stat -c "%i %s" "$F"
+    curl -s -X PATCH -H "Authorization: Bearer $TOKEN" \
+      -H "Content-Type: application/json" -d @/tmp/patch.json \
+      http://127.0.0.1:3011/config
+    stat -c "%i %s" "$F"
+
+返回的 `path` 应为 `config/config.json`（修复前是项目根的 `config.json`），且第二条 `stat` 的 inode 必须发生变化。
+
+
+---
+
+## 补丁 3：ConfigSchema 补上 webhook.serverchan
+
+- **文件**：`src/util/Validator.ts`（`WebhookSchema`）
+- **影响**：`webhook.serverchan` 整段配置，以及 `CONFIG_SERVERCHAN_*` 三个环境变量
+
+### 现象
+
+写在 `config.json` 里的 `webhook.serverchan` 段，经过 `loadConfig()` 之后被静默丢弃；
+`CONFIG_SERVERCHAN_ENABLED` / `CONFIG_SERVERCHAN_SENDKEY` / `CONFIG_SERVERCHAN_TITLE` 形同虚设。
+
+拿真实 `config.json` 过一遍 schema 实测：
+
+    STRIPPED_KEYS: ["webhook.serverchan"]
+
+3344 字节的配置文件校验后变成 3229 字节，差值恰好是 serverchan 那一整段。
+
+### 根因
+
+`ConfigSchema` 与 `WebhookSchema` 都是普通 `z.object`，默认会剥离未声明字段。
+`WebhookSchema` 里声明了 `discord`、`ntfy`、`telegram`、`pushplus`、`clawbot`、`webhookLogFilter`，
+唯独漏了 `serverchan`，于是它被当成未知字段剥掉。
+
+这是一类会反复踩的坑：提交 `027543e` 修的 `humanize` 被剥离，是同一个成因
+（那次是顶层漏了 `humanize`）。**往 config 里加新配置段时，必须同步在 schema 里声明。**
+
+### 改动内容
+
+    serverchan: z
+        .object({
+            enabled: z.boolean().optional(),
+            sendKey: z.string(),
+            title: z.string().optional()
+        })
+        .optional(),
+
+字段与 `src/interface/Config.ts` 里的 `WebhookServerChanConfig` 保持一致，
+位置上放在 `pushplus` 与 `clawbot` 之间，与 interface 及 `config.example.json` 的顺序对齐。
+
+### 验证
+
+修复后，下面这条命令应输出 1（修复前是 0）：
+
+    docker exec microsoft-rewards-script \
+      grep -c serverchan /usr/src/microsoft-rewards-script/config/config.json
+
+也可以直接跑一遍 schema 比对，`STRIPPED_KEYS` 应为空数组。
+
+---
+
 ## 补丁清单速查
 
 | # | 文件 | 提交 | 一句话 |
 | --- | --- | --- | --- |
 | 1 | `src/browser/BrowserFunc.ts` | `3c4f7fc` | 旧版 `getuserinfo` 接口剔除 `_U` cookie；flyout 兜底改为 60s 冷却而非永久降级 |
+| 2 | `scripts/api/configEditor.js` | - | 写 config.json 前先 realpathSync，跟随 entrypoint 建的软链接 |
+| 3 | `src/util/Validator.ts` | - | WebhookSchema 补上 serverchan，修复该配置段被 Zod 静默剥离 |
 
 ---
 
@@ -197,6 +314,8 @@ git merge upstream/V4-china
 # 3) 确认补丁还在
 grep -n withoutLegacyBlockedCookies src/browser/BrowserFunc.ts
 grep -n flyoutDashboardFallbackUntil src/browser/BrowserFunc.ts
+grep -n realpathSync scripts/api/configEditor.js
+grep -n "serverchan: z" src/util/Validator.ts
 
 # 4) 重新编译并重启
 npm run build
@@ -212,15 +331,18 @@ git push
 
 ## 本机部署提示
 
-本机多了一个 **未提交** 的 `compose.override.yaml`，作用是把重新编译后的
-`dist/browser/BrowserFunc.js` 单独挂进容器，方便不重建镜像就能验证补丁。
+本机还有一个 **未提交**（已被 `.gitignore` 忽略）的 `compose.override.yaml`，用来在不重建镜像的前提下做验证：
+
+- 挂载 `./dist/browser/BrowserFunc.js`（补丁 1 的编译产物）；
+- 挂载 `./patches/configEditor.js` 与 `./patches/Validator.js`（补丁 2、3 的编译产物）。
 
 **不要提交这个文件。** 它把宿主机的 `./dist/browser/BrowserFunc.js` 绑定挂载进容器；
 全新克隆的仓库没有 `dist/` 目录，Docker 会在挂载点新建一个同名目录，
-容器里这个文件就变成了目录，bot 会直接启动失败。
+容器里这个文件就变成了目录，bot 会直接启动失败。同理，`patches/` 也不该提交
+（它是从 `dist/` 复制并改出来的构建产物，本身已被忽略）。
 
-正常流程 `docker compose up -d --build` 会从 `src/` 重新编译，本来就包含补丁，**不需要**这个 override；
-`dist/` 也已经在 `.gitignore` 里。
+正常流程 `docker compose up -d --build` 会从 `src/` 与 `scripts/` 重新编译，
+本来就包含全部三个补丁，**不需要**这个 override。
 
 确认容器里跑的是带补丁的版本：
 
