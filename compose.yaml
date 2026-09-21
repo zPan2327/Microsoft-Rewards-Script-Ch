@@ -33,22 +33,11 @@ services:
             API_ALLOW_CONFIG_WRITE: 'true'
 
             # ── Configuration ──────────────────────────────────────
-            CONFIG_CLUSTERS: '2'
-            CONFIG_ACCOUNT_DELAY_MIN: '1min'
-            CONFIG_ACCOUNT_DELAY_MAX: '3min'
-            CONFIG_CONTINTUE_ON_BOT_WARNING: 'false'
-            CONFIG_EXPERIMENTAL_BLOCK_MEDIA: 'false'
-            CONFIG_EXPERIMENTAL_EDGE_BROWSING: 'false'
-            CONFIG_PROXY_IGNORE_CERTIFICATE_ERRORS: 'false'
 
             # ── 国内特性（V4-china）──────────────────────────────────
-            CONFIG_SEARCH_QUERY_ENGINES: 'china,local'
             # gmya.net appkey，个人配额密钥，从 .env 读取（见 env.example）
-            CONFIG_CHINA_API_APPKEY: ${CONFIG_CHINA_API_APPKEY}
 
             # ── 微信 ClawBot ─────────────────────────────────────
-            CONFIG_CLAWBOT_ENABLED: 'true'
-            CONFIG_CLAWBOT_AUTHFILE: '/usr/src/microsoft-rewards-script/clawbot/clawbot-auth.json'
 
         # ── API mode port mapping ─────────────────────────────
         # API_MODE=true 时开放 Control API
