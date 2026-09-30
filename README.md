@@ -279,6 +279,7 @@ docker compose restart          # 重启（不重建）
 | `ensureStreakProtection`    | 确保连击保护已开启                  | `true`          | `CONFIG_ENSURE_STREAK_PROTECTION`     |
 | `autoClaimPunchcardRewards` | 自动领取已完成的打卡奖励            | `false`         | `CONFIG_AUTO_CLAIM_PUNCHCARD_REWARDS` |
 | `skipNonPointTasks`         | 跳过无积分奖励的任务                | `true`          | `CONFIG_SKIP_NON_POINT_TASKS`         |
+| `prewarmDesktopLogin`       | 移动端登录后立即完成桌面端登录并保存会话（需要手机批准的账户可把两次批准集中在运行开头），之后桌面阶段直接复用会话 | `false` | `CONFIG_PREWARM_DESKTOP_LOGIN`        |
 | `accountDelay.min` / `.max` | 下一账户开始前的延迟                | `1min` - `3min` | `CONFIG_ACCOUNT_DELAY_MIN` / `_MAX`   |
 | `searchOnBingLocalQueries`  | ExploreOnBing 活动使用本地词库      | `false`         | `CONFIG_SEARCH_ON_BING_LOCAL`         |
 | `globalTimeout`             | 所有操作的超时时间                  | `30sec`         | `CONFIG_GLOBAL_TIMEOUT`               |
@@ -521,6 +522,23 @@ npx patchright install chromium
 npm run clear-sessions -- list          # 列出所有账户会话
 npm run clear-sessions -- email user@example.com   # 删除指定账户会话
 npm run clear-sessions -- all           # 删除全部会话
+```
+
+也可以用 `manual-login` 命令手动登录指定账户：它会打开有界面的浏览器（不走自动登录流程），你手动完成微软登录后，脚本检测到浏览器在 `rewards.bing.com` 停留 5 秒即自动保存会话并关闭浏览器：
+
+```bash
+npm run manual-login -- --email user@example.com                # 创建/刷新移动端会话
+npm run manual-login -- --email user@example.com --platform desktop   # 仅桌面端会话
+npm run manual-login -- --email user@example.com --platform both      # 桌面+移动依次创建
+npm run manual-login -- --email user@example.com --fresh        # 忽略已有 cookie 全新登录
+```
+
+**需要手机 Authenticator 批准登录的账户**，桌面端会话失效时第二次批准会出现在运行后段（几小时后），容易错过。开启 `"prewarmDesktopLogin": true` 后，桌面端登录会提前到移动端登录完成后立刻执行并保存会话（两次批准集中在运行开头几分钟内），后续桌面任务直接复用会话不再触发批准：
+
+```json
+{
+    "prewarmDesktopLogin": true
+}
 ```
 
 </details>
