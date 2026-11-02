@@ -1,386 +1,183 @@
-# 本仓库的本地补丁（PATCHES）
+# 相对上游 v5.0.0 的全部改动
 
-本仓库 fork 自 [chiihero/Microsoft-Rewards-Script](https://github.com/chiihero/Microsoft-Rewards-Script) 的 `V4-china` 分支，
-在上游基础上追加了少量修复。从上游拉取新版本、或重新构建镜像之后，请对照本文件确认补丁是否还在。
-
-> fork 地址：`git@github.com:zPan2327/Microsoft-Rewards-Script-Ch.git`（分支 `V4-china`），
-> 本地 `V4-china` 已把上游分支指向 `fork/V4-china`，日常 `git pull` / `git push` 都是对 fork 操作。
-
-> 补丁全部改在 `src/` 源码里，所以只要源码没被上游覆盖，重新执行 `docker compose up -d --build` 依然带着修复。
-> `dist/` 在 `.gitignore` 中，属于构建产物，不需要提交。
+基线：`TheNetsky/Microsoft-Rewards-Script` @ `v5` / 5.0.0 / `eac1718`。
+本文件是"改了什么、为什么这样改、同步上游后怎么确认还在"的唯一清单。
 
 ---
 
-## 目录
+## 1. 新增：中国热搜查询源
 
-- [补丁 1：修复旧版接口被 `_U` cookie 打成 302，导致仪表板数据降级](#补丁-1修复旧版接口被-_u-cookie-打成-302导致仪表板数据降级)
-- [补丁 2：Control API 写 config.json 时跟随软链接](#补丁-2control-api-写-configjson-时跟随软链接)
-- [补丁 3：ConfigSchema 补上 webhook.serverchan](#补丁-3configschema-补上-webhookserverchan)
-- [补丁清单速查](#补丁清单速查)
-- [从上游同步后怎么处理](#从上游同步后怎么处理)
-- [本机部署提示](#本机部署提示)
-- [验证补丁确实生效](#验证补丁确实生效)
-- [合并上游后 dist 会落后于 src](#合并上游后-dist-会落后于-src)
+**文件**：`src/rewards/shared/query/QuerySources.ts`、`src/rewards/shared/query/QueryEngine.ts`、`src/config/Config.ts`
 
----
+- `QueryEngine` 联合类型增加 `'china'`；`QueryEngine.ts` 的 `sourceHandlers` 增加对应处理器
+  （该表是 `Record<QueryEngineName, …>`，少一个键就编译失败，所以不会漏）。
+- `QuerySources.getChinaHotTopics(language, country)`：调用 gmya.net 热门词接口，
+  源为 `BaiduHot` / `TouTiaoHot` / `DouYinHot` / `WeiBoHot` / `ZhiHuHot`。
+- 接口契约（已实测）：`GET https://api.gmya.net/Api/BaiduHot` →
+  `{ code: 200, msg: "请求成功", data: [{ title, hot, url, updatetime }], info }`。
+  带 appkey 时 URL 为 `?format=json&appkey=...`，不带 appkey 时无查询串（与中文版 v4 一致）。
+- 限流识别：HTTP 403/429、或 `code` 为 `403`/`429`、或 `msg` 含「请求过于频繁」/「appkey」。
+  命中后抛 `ChinaApiRateLimitError`，上层据此把退避倍数 ×1.5。
+- 调度策略：
+    - 源顺序随机打散；
+    - 有 appkey：取 2 个源，请求间不等待；
+    - 无 appkey：只取 1 个源，请求间 1.2–2.5 秒随机退避；
+    - 首选源全失败 → 按顺序试备用源，拿到数据即停；
+    - 全部失败 → 仅告警并返回 `[]`，由其它引擎兜底。
+- 标题经 `cleanQuery(title, true)` 清洗，按标题去重，`kind: 'trend'`，`source: china.<SourceName>`。
 
-## 补丁 1：修复旧版接口被 `_U` cookie 打成 302，导致仪表板数据降级
-
-- **提交**：`3c4f7fc`
-- **文件**：`src/browser/BrowserFunc.ts`
-- **影响**：所有账户的打卡（Punch Cards）与促销任务，直接关系到积分收入
-
-### 现象
-
-日志里会出现这一串：
-
-```
-[GET-DASHBOARD-DATA] 主接口请求失败，正在重试一次 | 信息=Dashboard data missing from API response
-[GET-DASHBOARD-DATA] 重试后主接口仍不可用，改用 Bing flyout 兜底 | 信息=Dashboard data missing from API response
-[GET-DASHBOARD-DATA] 使用 Bing flyout 部分仪表板 | 疑似受限=false | bot标记=false | 活动折叠=false
-```
-
-出现之后，**这一轮里剩下的所有账户**都不再执行打卡类任务，积分明显变少。
-
-### 根因
-
-`getDashboardData()` 走的是 `URLs.rewards.userInfoApi`，也就是
-`https://rewards.bing.com/api/getuserinfo`。这个接口在 `src/constants/urls.ts` 里自己就标了 `// Legacy, avoid!`，
-是 rewards 的旧版接口。
-
-当请求的 Cookie 里带上 `.bing.com` 域下的 `_U` 时，这个接口会 **302 跳转到登录页**：
-
-```
-GET https://rewards.bing.com/api/getuserinfo
-302 -> https://rewards.bing.com/Signin
-    -> https://login.windows.net/consumers/oauth2/v2.0/authorize
-```
-
-响应体因此变成登录页 HTML，`response.data?.dashboard` 为空，
-代码抛出 `Dashboard data missing from API response`。
-
-**关键点：这不是账号或会话的问题。** 同一个 Cookie 集合去请求 `/earn` 是正常的
-（200，353 KB，`lang="zh-Hans"`），说明会话本身是健康的，只有这个旧版接口被 `_U` 搞坏。
-
-更糟的是后面这个逻辑：
-
-```ts
-private useFlyoutDashboardFallback = false
-// ...
-this.useFlyoutDashboardFallback = true      // 一次失败就永久置真
-```
-
-`BrowserFunc` 实例是跟着 worker 进程走的，所以**一个 worker 里只要有一个账户踩过一次，
-之后这个进程处理的所有账户都会被钉死在 flyout 兜底分支上**，一次瞬时故障会污染整轮。
-
-而 flyout 兜底拿到的数据是残缺的 —— `src/browser/FlyoutDashboard.ts` 里这几个字段是硬编码的空值：
-
-```ts
-morePromotionsWithoutPromotionalItems: [],
-punchCards: [],
-```
-
-这些字段会真实影响业务逻辑：
-
-| 消费方 | 使用的字段 |
-| --- | --- |
-| `src/functions/activities/rewards/PunchCards.ts` | `dashboard.punchCards` |
-| `src/functions/activities/rewards/MorePromotions.ts` | `morePromotions`、`morePromotionsWithoutPromotionalItems` |
-| `src/functions/activities/search/BonusTracker.ts` | 同上 |
-
-字段为空 → 这些任务被整体跳过 → **真实少拿积分**。
-
-> 顺带一提：`lifetimePoints` 同样是兜底里的降级字段，但它只用于展示，不参与任何任务决策。
-
-### 实测数据
-
-在真实容器里用真实会话 Cookie 跑 `getDashboardData()`，4 个账号 × 桌面/移动共 8 组：
-
-| | 结果 |
-| --- | --- |
-| 修复前 | 8/8 全部失败，错误 `HTTP 302` |
-| 修复后 | 8/8 全部成功，`warned=0` |
-
-只对比 Cookie 差异（同样 8 组）：
-
-```
-带 _U     -> 全部 302，无 dashboard
-去掉 _U   -> 全部 200，dashboard 完整，punchCards=4
-```
-
-再单独二分，锁定到就是 `_U` 一个 cookie：
-
-```
-auth + _U       -> 302  hasDashboard=false
-auth + _MsaRef  -> 200  hasDashboard=true
-```
-
-修复后的真实返回：
-
-```
-account1@example.com [desktop] punchCards=4 morePromotions=4 mwp=4 lifetime=60501
-account1@example.com [mobile]  punchCards=4 morePromotions=4 mwp=4 lifetime=60501
-account2@example.com [desktop] punchCards=4 morePromotions=8 mwp=4 lifetime=2046
-account2@example.com [mobile]  punchCards=4 morePromotions=8 mwp=4 lifetime=2046
-account3@example.com [desktop] punchCards=4 morePromotions=7 mwp=4 lifetime=2755
-account3@example.com [mobile]  punchCards=4 morePromotions=7 mwp=4 lifetime=2755
-account4@example.com [desktop] punchCards=4 morePromotions=9 mwp=5 lifetime=2018
-account4@example.com [mobile]  punchCards=4 morePromotions=9 mwp=5 lifetime=2018
-```
-
-### 改动内容
-
-共两处，都在 `src/browser/BrowserFunc.ts`。
-
-**1）只在这个旧版接口上剔除 `_U`**
-
-```ts
-const LEGACY_DASHBOARD_BLOCKED_COOKIES = new Set(['_u'])
-
-function withoutLegacyBlockedCookies(cookies: Cookie[]): Cookie[] {
-    return cookies.filter(cookie => !LEGACY_DASHBOARD_BLOCKED_COOKIES.has(cookie.name.toLowerCase()))
-}
-```
-
-调用点：
-
-```ts
-Cookie: this.buildCookieHeader(
-    withoutLegacyBlockedCookies(this.getCachedCookies(cookies, URLs.rewards.userInfoApi))
-),
-```
-
-改动范围刻意收窄到这一个请求：`_U` 对其它 bing 请求是无害的（`/earn` 带与不带都是 200），
-所以不对全局 Cookie 做任何裁剪，不影响搜索等其它流程。
-
-**2）把一次性的永久降级改成 60 秒冷却窗口**
-
-```ts
-const FLYOUT_FALLBACK_COOLDOWN_MS = 60_000
-
-private flyoutDashboardFallbackUntil = 0
-
-if (Date.now() >= this.flyoutDashboardFallbackUntil) {
-    // ... 走主接口
-    this.flyoutDashboardFallbackUntil = Date.now() + FLYOUT_FALLBACK_COOLDOWN_MS
-}
-```
-
-这样瞬时故障只会让主接口冷却一分钟，之后自动重试，不会再出现「一次失败拖垮整轮」的情况。
-
-### 如果上游以后改了这里
-
-`getDashboardData()` 被上游重写时，需要重新把这两点加回去：
-
-1. 请求 `URLs.rewards.userInfoApi` 时不要带 `_U`；
-2. 兜底开关不要用「永久置真」，至少给它一个冷却窗口或重试机会。
+**同步后自检**：`grep -n "getChinaHotTopics" src/rewards/shared/query/QuerySources.ts`
 
 ---
 
-## 补丁 2：Control API 写 config.json 时跟随软链接
+## 2. 新增：中文查询词库
 
-- **文件**：`scripts/api/configEditor.js`（函数 `writeConfigAtomic`）
-- **影响**：仪表盘「配置」页保存配置。不修的话，保存的配置永远不生效。
+**文件**：`src/data/search-queries.json`
 
-### 现象
+上游文件本身就是 `{ "en": [...] }` 结构，`getLocalQueryList()` 支持按语言取段。
+本版新增 `zh` 段（83 条日常向查询词），因此 `"queryEngines": ["local"]` 在 `lang=zh` 时能取到中文词。
 
-在仪表盘点保存，界面提示成功（`PUT` / `PATCH /config` 返回 `ok:true`），但：
+**同步后自检**：`node -e "console.log(Object.keys(require('./src/data/search-queries.json')))"`
 
-1. 机器人重启后改动全部消失；
-2. 宿主机 `./config/config.json` 的 inode 与 mtime 从头到尾没变过。
+---
 
-### 根因
+## 3. 新增：PushPlus / Server酱 推送
 
-Docker 官方 entrypoint 为了让应用能在项目根读到配置，建了一个软链接：
+**文件**：`src/logging/PushPlus.ts`（新）、`src/logging/ServerChan.ts`（新）、
+`src/logging/Notifications.ts`、`src/logging/Logger.ts`、`src/config/{Config,Defaults,Validator,ConfigEnvOverrides}.ts`
 
-    # scripts/docker/entrypoint.sh 第 78 行
-    ln -sf "$CONFIG_FILE" "$SCRIPT_DIR/config.json"
-    # 即 <root>/config.json -> <root>/config/config.json
+- 两个渠道都复用上游的 `createNotificationQueue` / `enqueueNotification` / `flushQueue`，
+  自动获得：并发 1、每秒 2 条限速、429 重试、队列满丢弃告警、摘要优先（`RUN-END`/`ACCOUNT-END` 优先级 10）。
+- PushPlus：`POST https://www.pushplus.plus/send`，`{ token, title, content, template, channel? }`，
+  标题为 `<标题> · <级别中文>`，`template` 支持 `txt/html/markdown`（默认 markdown）。
+- Server酱 Turbo：`POST https://sctapi.ft07.com/<sendKey>.send`，`{ title, desp, tags }`，
+  `tags` 按级别映射为「错误 / 警告」。
+- 内容超长会截断（PushPlus 18000 字符、Server酱 30000 字符），避免请求体被服务端拒绝。
 
-而 `writeConfigAtomic()` 用的是「写临时文件 + rename」的原子写法：
+**必须注意的两个接入点**（上游扩展渠道的两个坑）：
 
-    const tmp = target + "." + process.pid + ".tmp"
-    fs.writeFileSync(tmp, JSON.stringify(cfg, null, 2))
-    fs.renameSync(tmp, target)   # <-- 问题在这里
+1. `Logger.hasWebhook` 只判断了 discord/ntfy/telegram —— 不改它，新渠道**永远不会被触发**。已补上 pushplus/serverchan。
+2. `Notifications.flushNotifications` 需要把新队列一起 flush，否则进程退出时最后几条会丢。
 
-`renameSync` 替换的是目录项本身，并不会写穿软链接。于是：
+**同步后自检**：
 
-- 第一次保存：根目录的 `config.json` 软链接**被替换成普通文件**，写进容器可写层；
-- bind mount 里的 `config/config.json` 完全没被碰过；
-- 容器一重启，entrypoint 重跑 `ln -sf` 重建软链接，于是又指回那份从未被修改过的挂载文件，刚保存的内容全部消失。
+```bash
+grep -n "pushplus" src/logging/Logger.ts
+grep -n "flushPushPlusQueue" src/logging/Notifications.ts
+```
 
-而且根目录已经是普通文件了，后续保存也一直只改容器内那一份，形成「假保存」。
+---
 
-### 改动内容
+## 4. 新增：中文运行摘要
 
-写入前先把目标解析成软链接的真实路径：
+**文件**：`src/logging/RunSummaryZh.ts`（新）、`src/logging/RunSummary.ts`
 
-    export function writeConfigAtomic(projectRoot, cfg) {
-        let target = resolveConfigPath(projectRoot)
-        try {
-            target = fs.realpathSync(target)
-        } catch {
-            // target does not exist yet - keep the resolved candidate path
-        }
-        ...
+- `RUN-END-摘要`：`本轮结束 | 状态=完成 | 账户=1/1 | 获得积分=42 | 运行前余额=1200 | 当前余额=1242 | 耗时=35.2分钟`
+- `ACCOUNT-END-摘要`：`账户结束 | 账户=… | 状态=… | 获得积分=… | 余额=… | 用时=…秒 | 任务: 已完成… 未完成… 不可用… 不适用… | 原因=…`
+- 通过 `logger.info()` 输出（**不是** `logger.event()`），因此不会向 Control API 注入新的领域事件，
+  也不会打乱 `control-api/logs/apply.js` 对 `RUN-END` / `ACCOUNT-END` 的解析。
+- `logRunResult` 的参数类型从 `Pick<Logger,'event'>` 放宽为 `Pick<Logger,'event'|'info'>`。
+
+**不上更重的中文化的原因**：上游日志分散在 200+ 文件，逐条翻译无法长期跟随上游；关键路径摘要已覆盖
+"跑完了吗、拿了多少分、为什么失败"三个实际诉求。
+
+**同步后自检**：`grep -n "RUN-END-摘要" src/logging/RunSummary.ts`
+
+---
+
+## 5. 修复：旧版 `getuserinfo` 被 `_U` cookie 打成 302
+
+**文件**：`src/rewards/shared/data/AccountData.ts`
+**来源**：zPan2327 补丁 1 的现象与验证方法（其 `PATCHES.md` 记录了 8/8 会话复现与二分定位）
+
+- 现象：日志出现 `User data source unavailable | via=node-http | path=/api/getuserinfo`，随后走 flyout 兜底，
+  而 flyout 映射出的 `punchCards` / `morePromotionsWithoutPromotionalItems` 为空 → 打卡与促销任务被整段跳过。
+- 根因：`rewards.bing.com/api/getuserinfo`（源码注释自标 `// Legacy, avoid!`）在 Cookie 带 `_U` 时 302 跳登录页，
+  响应体变 HTML，JSON 解析失败。同一 Cookie 请求 `/earn` 正常，说明会话本身健康。
+- 改动：仅对 `URLs.rewards.userInfoApi` 这一个请求过滤 `_u`：
+    ```ts
+    const LEGACY_DASHBOARD_BLOCKED_COOKIES = new Set(['_u'])
+    function withoutLegacyBlockedCookies(cookies, url) {
+        if (url !== URLs.rewards.userInfoApi) return cookies
+        return cookies.filter(c => !LEGACY_DASHBOARD_BLOCKED_COOKIES.has(c.name.toLowerCase()))
     }
+    ```
+    其余 Bing 请求（搜索、`/earn` 页面等）的 Cookie 不做任何裁剪。
 
-`realpathSync` 对普通文件是幂等的（返回自身），不影响非软链接场景。
+**与补丁版的差异**：补丁版还把"永久降级开关"改成 60 秒冷却；v5 已经没有这个开关
+（`getDashboardData()` 是 `userinfo → flyout` 的线性尝试，每次带独立 deadline），因此这部分无需移植。
 
-### 验证
-
-    F=/vol1/1000/A-docker/Microsoft-Rewards-Script/config/config.json
-    stat -c "%i %s" "$F"
-    curl -s -X PATCH -H "Authorization: Bearer $TOKEN" \
-      -H "Content-Type: application/json" -d @/tmp/patch.json \
-      http://127.0.0.1:3011/config
-    stat -c "%i %s" "$F"
-
-返回的 `path` 应为 `config/config.json`（修复前是项目根的 `config.json`），且第二条 `stat` 的 inode 必须发生变化。
-
+**同步后自检**：`grep -n "LEGACY_DASHBOARD_BLOCKED_COOKIES" src/rewards/shared/data/AccountData.ts`
 
 ---
 
-## 补丁 3：ConfigSchema 补上 webhook.serverchan
+## 6. 配置：新增字段与环境变量
 
-- **文件**：`src/util/Validator.ts`（`WebhookSchema`）
-- **影响**：`webhook.serverchan` 整段配置，以及 `CONFIG_SERVERCHAN_*` 三个环境变量
+**类型/默认值/校验三处同步修改**（这是本仓库最容易漏的地方）：
 
-### 现象
+| 配置路径                                                  | 类型           | 默认值 | 校验                                         | 环境变量                  |
+| --------------------------------------------------------- | -------------- | ------ | -------------------------------------------- | ------------------------- |
+| `searchSettings.chinaApi.appkey`                          | `string?`      | `''`   | `strictObject({appkey?: string}).optional()` | `CONFIG_CHINA_API_APPKEY` |
+| `webhook.pushplus.{enabled,token,title,template,channel}` | 见 `Config.ts` | 关闭   | `strictObject`                               | `CONFIG_PUSHPLUS_*`       |
+| `webhook.serverchan.{enabled,sendKey,title}`              | 见 `Config.ts` | 关闭   | `strictObject`                               | `CONFIG_SERVERCHAN_*`     |
 
-写在 `config.json` 里的 `webhook.serverchan` 段，经过 `loadConfig()` 之后被静默丢弃；
-`CONFIG_SERVERCHAN_ENABLED` / `CONFIG_SERVERCHAN_SENDKEY` / `CONFIG_SERVERCHAN_TITLE` 形同虚设。
+> `WebhookSchema` 与 `searchSettings` 都是 `z.strictObject`：**只加类型不加 schema，会被静默剥离**。
+> 中文版 v4 的 `webhook.serverchan` 正是这样失效的（配置写进去、运行时被删掉、日志毫无提示）。
 
-拿真实 `config.json` 过一遍 schema 实测：
-
-    STRIPPED_KEYS: ["webhook.serverchan"]
-
-3344 字节的配置文件校验后变成 3229 字节，差值恰好是 serverchan 那一整段。
-
-### 根因
-
-`ConfigSchema` 与 `WebhookSchema` 都是普通 `z.object`，默认会剥离未声明字段。
-`WebhookSchema` 里声明了 `discord`、`ntfy`、`telegram`、`pushplus`、`clawbot`、`webhookLogFilter`，
-唯独漏了 `serverchan`，于是它被当成未知字段剥掉。
-
-这是一类会反复踩的坑：提交 `027543e` 修的 `humanize` 被剥离，是同一个成因
-（那次是顶层漏了 `humanize`）。**往 config 里加新配置段时，必须同步在 schema 里声明。**
-
-### 改动内容
-
-    serverchan: z
-        .object({
-            enabled: z.boolean().optional(),
-            sendKey: z.string(),
-            title: z.string().optional()
-        })
-        .optional(),
-
-字段与 `src/interface/Config.ts` 里的 `WebhookServerChanConfig` 保持一致，
-位置上放在 `pushplus` 与 `clawbot` 之间，与 interface 及 `config.example.json` 的顺序对齐。
-
-### 验证
-
-修复后，下面这条命令应输出 1（修复前是 0）：
-
-    docker exec microsoft-rewards-script \
-      grep -c serverchan /usr/src/microsoft-rewards-script/config/config.json
-
-也可以直接跑一遍 schema 比对，`STRIPPED_KEYS` 应为空数组。
+默认值改动只有一处：`searchSettings.queryEngines` 由 `['google','local','wikipedia','rss.googleNews']`
+改为 `['china','local']`，其余时序默认值保持上游，便于对照上游文档。
 
 ---
 
-## 补丁清单速查
+## 7. 部署：国内可用性
 
-| # | 文件 | 提交 | 一句话 |
-| --- | --- | --- | --- |
-| 1 | `src/browser/BrowserFunc.ts` | `3c4f7fc` | 旧版 `getuserinfo` 接口剔除 `_U` cookie；flyout 兜底改为 60s 冷却而非永久降级 |
-| 2 | `scripts/api/configEditor.js` | - | 写 config.json 前先 realpathSync，跟随 entrypoint 建的软链接 |
-| 3 | `src/util/Validator.ts` | - | WebhookSchema 补上 serverchan，修复该配置段被 Zod 静默剥离 |
+| 文件                  | 改动                                                                                                                                                                                                                                                     |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `config.example.json` | 国内保守档：`queryEngines: ["china","local"]`、搜索间隔 6–12 分钟、阅读间隔 6–11 分钟、串行搜索、随机滚动/点击、`globalTimeout: 50sec`、`searchResultVisitTime: 20sec`、`doVisualSearch: false`、`proxy.queryEngine: false`；新增 pushplus/serverchan 段 |
+| `env.example`         | 中文注释；账户示例固定 `GEO_LOCALE=CN` / `LANG_CODE=zh-CN`；新增 `CONFIG_CHINA_API_APPKEY`、`CONFIG_PUSHPLUS_*`、`CONFIG_SERVERCHAN_*` 说明                                                                                                              |
+| `compose.yaml`        | `TZ: Asia/Shanghai`、镜像名 `microsoft-rewards-script:v5-china`、容器名 `microsoft-rewards-script-v5`（避免与 V4-china 实例冲突）、构建参数 `NPM_REGISTRY`、国内相关开关的注释示例                                                                       |
+| `Dockerfile`          | 新增 `ARG NPM_REGISTRY`，非空时 `npm config set registry`（在 builder 阶段两次 `npm ci` 之前生效）                                                                                                                                                       |
+| `package.json`        | `version: 5.0.0-ch.1`、描述与 keywords 增加 china/zh-CN/wechat/pushplus/serverchan                                                                                                                                                                       |
 
 ---
 
-## 从上游同步后怎么处理
+## 8. 明确**未**移植的上游历史问题
+
+| 补丁版的补丁                                     | 为什么没移植                                                                                               |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| 补丁 2：`writeConfigAtomic` 写入穿透软链接       | 上游 v5 的 `scripts/lib/projectFiles.cjs::writeJsonAtomic` 已先执行 `fs.realpathSync(requested)`，行为正确 |
+| 补丁 1 的"永久降级开关"                          | 上游 v5 已重写 `getDashboardData()`，不存在该开关                                                          |
+| 补丁 3：`WebhookSchema` 漏 `serverchan`          | 本版是从零新增 `serverchan`，schema 一开始就声明了，不存在剥离问题                                         |
+| 中文版 v4 的 ClawBot（微信 iLink）推送           | 依赖未公开接口 + 扫码登录凭证文件，稳定性无法保证；本次范围不含                                            |
+| 中文版 v4 的 `humanize`（静默时段/目标比例随机） | 与 v5 的 `TaskPacing` / `SearchProgress` 逻辑耦合，改动面大；建议作为独立 PR 评估                          |
+
+---
+
+## 9. 已做的验证
+
+本机（Windows / Node 22）与真实 Linux 服务器（Node **v24.21.0**、Docker **28.5.2**、Compose v2.40.3）双端验证：
 
 ```bash
-# 1) 先拉本仓库的 fork（本地 V4-china 已跟踪 fork/V4-china）
-git pull
-
-# 2) 再合并上游新提交。本机访问 github 的 https 会超时，必须走 SSH：
-git remote add upstream git@github.com:chiihero/Microsoft-Rewards-Script.git
-git fetch upstream
-git merge upstream/V4-china
-
-# 3) 确认补丁还在
-grep -n withoutLegacyBlockedCookies src/browser/BrowserFunc.ts
-grep -n flyoutDashboardFallbackUntil src/browser/BrowserFunc.ts
-grep -n realpathSync scripts/api/configEditor.js
-grep -n "serverchan: z" src/util/Validator.ts
-
-# 4) 重新编译并重启
-npm run build
-docker compose up -d --build
-
-# 5) 推回 fork，让它保持「上游最新 + 补丁」
-git push
+npm ci --ignore-scripts        # Node 22 与 24 均通过；运行仍需 Node ≥ 24
+npm run build                  # tsc 全量类型检查
+npm run check:api              # control-api 单独 tsconfig
+npm run lint                   # eslint
+npm run format:check           # prettier
+docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com -t <tag> .
+docker compose config -q
 ```
 
-如果 `grep` 没有输出，说明上游把这块重写了，按上面「如果上游以后改了这里」重新应用一次。
+- 配置层：`validateConfig(config.example.json)` → 新字段保留、0 warning；缺省 `chinaApi` 被补齐；
+  `appkey` 不被剥离；非法引擎 `["china","nope"]` 回退为 `["china","local"]`。
+- 运行时：容器内由 entrypoint 生成的 `config/config.json` 中，`queryEngines` 为 `["china","local"]`，
+  `chinaApi` / `pushplus` / `serverchan` 三段完整存在（说明 `Defaults.ts` 与 `Validator.ts` 一致，没有被剥离）。
+- 网络：容器内 `getChinaHotTopics()` 实跑 **50 条 / 682 ms**；`api.gmya.net/Api/BaiduHot` 返回 `code:200` + 51 条 `data[].title`。
+- Control API：`/health` 返回 `{"ok":true,"name":"microsoft-rewards-script","version":"5.0.0-ch.1","state":"idle"}`。
+- 构建：Chrome Headless Shell 156.0.8078.4（playwright chromium-headless-shell v1248）随镜像打包成功。
+- **未做**：真实账号登录与任务执行。
 
----
+### 测试中发现并修正的问题
 
-## 本机部署提示
-
-本机还有一个 **未提交**（已被 `.gitignore` 忽略）的 `compose.override.yaml`，用来在不重建镜像的前提下做验证：
-
-- 挂载 `./dist/browser/BrowserFunc.js`（补丁 1 的编译产物）；
-- 挂载 `./patches/configEditor.js` 与 `./patches/Validator.js`（补丁 2、3 的编译产物）。
-
-**不要提交这个文件。** 它把宿主机的 `./dist/browser/BrowserFunc.js` 绑定挂载进容器；
-全新克隆的仓库没有 `dist/` 目录，Docker 会在挂载点新建一个同名目录，
-容器里这个文件就变成了目录，bot 会直接启动失败。同理，`patches/` 也不该提交
-（它是从 `dist/` 复制并改出来的构建产物，本身已被忽略）。
-
-正常流程 `docker compose up -d --build` 会从 `src/` 与 `scripts/` 重新编译，
-本来就包含全部三个补丁，**不需要**这个 override。
-
-确认容器里跑的是带补丁的版本：
-
-```bash
-docker exec microsoft-rewards-script md5sum /usr/src/microsoft-rewards-script/dist/browser/BrowserFunc.js
-```
-
-如果输出是下面这个值，说明编译产物和本仓库源码一致：
-
-```
-265038b32c1d01671fcbb307f22c6d56  dist/browser/BrowserFunc.js
-```
-
----
-
-## 验证补丁确实生效
-
-打补丁后的第一次全新运行，日志里不应该再出现这两行：
-
-```
-主接口请求失败，正在重试一次 | 信息=Dashboard data missing from API response
-重试后主接口仍不可用，改用 Bing flyout 兜底
-```
-
-也不应该再出现：
-
-```
-使用 Bing flyout 部分仪表板
-```
-
-后者一旦出现，说明这次运行仍然走了兜底分支，`punchCards` / `morePromotions` 会是空的，任务会被整段跳过。
-
----
-
-## 合并上游后 dist 会落后于 src
-
-执行 `git merge upstream/V4-china` 之后，`src/` 里已经有上游的新修复，但 `dist/` 还是上一次编译出来的产物。
-容器只挂载了 `dist/browser/BrowserFunc.js` 这一个文件，所以上游的其它改动不会自动生效。
-
-要么等下一次 `docker compose up -d --build`（会重新编译，顺带带上上游修复），要么现在就重建。
-**不要在运行中重建**：正在跑的 bot 进程还有懒加载的模块，重写 `dist/` 可能让它读到半个文件。
+上游 `compose.yaml` 使用 `image: microsoft-rewards-script:china` 与 `container_name: microsoft-rewards-script`。
+如果宿主机已在运行 V4-china 实例，直接 `docker compose up` 会覆盖其镜像标签、并在容器名上冲突。
+本仓库已改为 `image: microsoft-rewards-script:v5-china` / `container_name: microsoft-rewards-script-v5`。

@@ -1,643 +1,264 @@
-<div align="center">
+# Microsoft Rewards Script · 中文版（v5.0.0-ch.1）
 
-# 微软奖励脚本（V4-china）
+基于 [TheNetsky/Microsoft-Rewards-Script](https://github.com/TheNetsky/Microsoft-Rewards-Script) **v5.0.0** 的国内本地化版本。
+上游 v5 是一次彻底重构（分层架构 + `api` 任务模式 + 重写 Control API），本版在**不改动其架构**的前提下，
+把国内用户最需要的三项能力移植进来，并合入了下游排查出的真实缺陷修复。
 
-[![Version](https://img.shields.io/badge/version-4.3.0-blue.svg)](./package.json)
-[![License](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](./LICENSE)
-[![Node](https://img.shields.io/badge/node-%3E%3D24-green.svg)](./package.json)
-[![Last Sync](https://img.shields.io/badge/最后同步-2026--08--16-orange.svg)](#-同步与致谢)
-[![Upstream](https://img.shields.io/badge/上游-TheNetsky/Microsoft--Rewards--Script-informational.svg)](https://github.com/TheNetsky/Microsoft-Rewards-Script)
+- 上游基线：`TheNetsky/Microsoft-Rewards-Script` 分支 `v5`，commit `eac1718`，版本 5.0.0（2026-10-31）
+- 本版版本：`5.0.0-ch.1`
+- 许可：GPL-3.0-or-later（与原项目一致，分发修改版需同样开源）
 
-**基于 TypeScript · Patchright(Playwright) 的新一代架构 · 微软奖励自动化脚本**
-
-针对国内用户深度本地化：✅ 中国热搜查询源（百度/头条/抖音/微博/知乎） · ✅ 日志中文化 · ✅ PushPlus / 微信 ClawBot 推送 · ✅ Docker 镜像加速
-
-</div>
-
-> ℹ️ **分支选择建议**
->
-> - **`main` 分支（v3，稳定版）**：已兼容微软新版 UI，实测未发现明显异常，可放心日常使用。
-> - **`V4-china` 分支（v4 新架构，基本可用，本分支）**：搜索、活动、签到、Read-to-Earn、微信推送（PushPlus / ClawBot）等核心功能已实测通过（2026-08），**可以切换日常使用**；新架构仍在迭代，偶发小问题属正常，追求稳定可继续留在 `main` 分支。
->
-> 两分支配置文件结构不同，**互不兼容**；本分支账号改用 `.env` 环境变量配置（不再使用 `accounts.json`），从 v3 迁移请按本文档重新配置 `.env` / `config.json`。
-
-> [!TIP]
-> 本分支仅支持**新版（modern）Bing Rewards 面板**，不支持旧版面板。账户还在旧版面板的请使用本仓库 [`main` 分支](https://github.com/chiihero/Microsoft-Rewards-Script/tree/main)（v3）。
+> 与上游的完整差异（逐文件）见 [PATCHES.md](PATCHES.md)；上游同步流程见 [UPSTREAM.md](UPSTREAM.md)。
 
 ---
 
----
+## 这个版本解决了什么
 
-## 📑 目录
+上游 v5 功能最全、维护最活跃，但对国内环境有两处硬伤：**查询词是英文趋势**、**通知只有 Discord/Telegram/ntfy**。
+中文版（chiihero）功能齐但停在 v4 架构，且存在几处会导致"积分变少 / 配置存不住"的缺陷。
+本版把两者合并到 v5 上：
 
-- [✨ 核心特性](#-核心特性)
-- [🚀 快速开始](#-快速开始)
-- [📦 Windows 部署](#-windows-部署)
-- [🐳 Docker 部署](#-docker-部署)
-- [🖥️ 控制 API 与面板](#️-控制-api-与面板)
-- [⚙️ 配置参考](#️-配置参考)
-- [🔔 通知渠道](#-通知渠道)
-- [❓ 常见问题](#-常见问题)
-- [🩹 本地补丁](#-本地补丁)
-- [⚠️ 注意事项](#-注意事项)
-- [📜 同步与致谢](#-同步与致谢)
-- [⚠️ 免责声明](#-免责声明)
+| 能力                   | 上游 v5              | 本版 | 说明                                              |
+| ---------------------- | -------------------- | ---- | ------------------------------------------------- |
+| 中国热搜查询源         | ❌                   | ✅   | 百度/头条/抖音/微博/知乎，经 gmya.net 聚合        |
+| 中文查询词库           | ❌（`local` 仅英文） | ✅   | `src/data/search-queries.json` 新增 `zh`（83 条） |
+| PushPlus 微信推送      | ❌                   | ✅   | 支持 `txt/html/markdown` 模板                     |
+| Server酱 微信推送      | ❌                   | ✅   | Turbo 版 `sctapi.ft07.com`                        |
+| 中文运行摘要           | ❌                   | ✅   | 每轮/每账户结束额外输出一条中文摘要，可推送       |
+| 国内推荐配置           | —                    | ✅   | `config.example.json` 为国内保守档                |
+| Docker 构建走国内源    | ❌                   | ✅   | 可选构建参数 `NPM_REGISTRY`                       |
+| `rewardsMode: api`     | ✅                   | ✅   | 原样保留，未改动                                  |
+| Control API（28 端点） | ✅                   | ✅   | 原样保留                                          |
+| 会话库 / 分层架构      | ✅                   | ✅   | 原样保留                                          |
 
----
+**没有移植**的两项（因为上游 v5 已自行修好，移植会制造冲突）：
 
-## ✨ 核心特性
-
-**账户管理**
-
-- ✅ 多账户支持（`.env` 中 `ACCOUNT_N_*` 环境变量，编号无需连续）
-- ✅ 会话存储与持久化（`sessions/`，含指纹持久化）
-- ✅ 2FA 支持（TOTP 自动生成并填入验证码）
-- ✅ 无密码登录支持
-- ✅ 每账户独立代理（HTTP/HTTPS/SOCKS4/SOCKS5）
-
-**自动化与控制**
-
-- ✅ 无头浏览器操作（Patchright 反检测内核）
-- ✅ 集群支持（同时多个账户）
-- ✅ 可配置任务开关
-- ✅ 控制 API + Web 面板（启动/停止/日志/积分/调度管理）
-- ✅ 自动调度（Docker 内置 cron）
-
-**搜索与活动**
-
-- ✅ 桌面与移动搜索（配额独立跟踪，互不阻塞）
-- ✅ 加成搜索（超过上限后继续刷，可选）
-- ✅ 每日集 / 更多促销 / 打卡 / App 活动 / 每日签到 / 阅读赚取（Read-to-Earn）
-- ✅ 搜索加成 perk 激活（"再搜 N 次得积分"）/ 视觉搜索（可选）
-- ✅ 连击保护 & 自动领取 dashboard 奖励积分
-- ✅ 模拟滚动与随机点击，降低风控风险
-
-**搜索词来源（国内推荐 china + local）**
-
-- ✅ 中国热搜（百度/头条/抖音/微博/知乎，gmya.net 聚合，多源随机 + 限流退避）
-- ✅ 本地查询词兜底（`search-queries.json` 中文词库）
-- ✅ Bing 建议聚类扩展（`clusterSearch`，每个主词扩展一组相关词再搜索）
-- ✅ 亦可选 google / wikipedia / reddit / hackernews / RSS 源（国内需代理）
-
-**通知与监控**
-
-- ✅ PushPlus 微信推送（国内推荐，无需翻墙）
-- ✅ Server酱 微信推送（Turbo 版，扫码获取 SendKey 即用）
-- ✅ 微信 ClawBot 推送（腾讯官方 iLink 直连，免费无第三方服务）
-- ✅ Discord / Telegram / ntfy 推送
-- ✅ 全面日志记录（日志过滤 + 落盘 `logs/` 按天分文件，自动清理 90 天前旧日志）
+- 补丁版（zPan2327）的「配置写入不落盘」：v5 的 `scripts/lib/projectFiles.cjs` 中 `writeJsonAtomic` 已经先做 `fs.realpathSync`，软链接场景天然正确。
+- 补丁版的「flyout 兜底永久降级」：v5 已把 `getDashboardData()` 重写为 `userinfo → flyout` 的线性尝试，每次尝试都有独立 deadline，不存在"一次失败污染整轮"的开关。
 
 ---
 
-## 🚀 快速开始
+## 快速开始
 
-本脚本支持两种部署方式，**按你的场景二选一即可**：
+### 环境要求
 
-| 维度           | 📦 Windows 直跑                       | 🐳 Docker                                            |
-| -------------- | ------------------------------------- | ---------------------------------------------------- |
-| **配置方式**   | `.env`（账号）+ `config.json`（行为） | `.env`（账号）+ `compose.yaml` 的 `CONFIG_*`（行为） |
-| **调度**       | 手动 / 计划任务                       | 内置 cron + API 改调度                               |
-| **headless**   | 可选（可见窗口）                      | 强制 `true`（无显示器）                              |
-| **数据持久化** | `sessions/` 目录                      | `./config/` + `./sessions/` 挂载                     |
-| **升级方式**   | `git pull` + `npm run build`          | `docker compose up -d --build`                       |
-| **前置要求**   | Node.js 24+                           | Docker + Docker Compose                              |
+- **Node.js 24 或更高**（`package.json` 的 `engines` 会在启动时校验，低于 24 会直接退出）
+- Windows / Linux / macOS 均可；Docker 方式最省事
 
-> ⚠️ 与 v3（`main` 分支）不同：**账号统一在 `.env` 中配置**（`ACCOUNT_1_EMAIL` 等），不再使用 `accounts.json`；行为配置仍在 `config.json`（Docker 下用 `CONFIG_*` 环境变量）。
-
----
-
-## 📦 Windows 部署
-
-> ⚠️ 本项目所有改动基于 Win11 系统测试，其他系统请参考[原项目](https://github.com/TheNetsky/Microsoft-Rewards-Script)相关配置。
-
-<details>
-<summary><b>🔧 自动设置（推荐，一键部署）</b></summary>
-
-1. 下载或克隆源代码：
-
-    ```bash
-    git clone -b V4-china https://github.com/chiihero/Microsoft-Rewards-Script.git
-    ```
-
-    > 国内无法直连 GitHub 时可用镜像加速：在 URL 前加 `https://gh-proxy.com/`，或在本仓库页面 "Code → Download ZIP" 下载。
-
-2. 双击运行 `setup.bat`：自动安装 Node.js 24、生成 `.env` 与 `config.json`、安装依赖并构建
-3. 编辑 `.env`，填入账户信息（`ACCOUNT_1_EMAIL` / `ACCOUNT_1_PASSWORD` 等）
-4. 按需修改 `config.json`
-5. 运行 `run.bat` 或执行 `npm start` 启动脚本
-
-</details>
-
-<details>
-<summary><b>🛠 手动设置（自动设置失败时使用）</b></summary>
-
-1. 克隆源代码（同上）
-2. 安装 Node.js 24+
-3. 安装依赖包：
-
-    ```bash
-    npm install
-    ```
-
-4. 若出现 `Error: browserType.launch: Executable doesn't exist` 报错，执行：
-
-    ```bash
-    npx patchright install chromium
-    ```
-
-5. 复制 `env.example` 为 `.env`，填入账户信息；国内账号推荐保留默认的 `ACCOUNT_1_LANG_CODE=zh-CN`、`ACCOUNT_1_GEO_LOCALE=CN`
-6. 复制 `config.example.json` 为 `config.json`（项目根目录），按需修改
-7. 预构建（安装依赖与浏览器）：
-
-    ```bash
-    npm run pre-build
-    ```
-
-8. 构建：
-
-    ```bash
-    npm run build
-    ```
-
-9. 启动：
-
-    ```bash
-    npm start
-    ```
-
-> 💡 调试时可直接源码运行：`npm run dev`（带 `-dev` 参数输出 DEBUG 日志）。
-
-</details>
-
----
-
-## 🐳 Docker 部署
-
-<details open>
-<summary><b>部署步骤</b></summary>
-
-> [!IMPORTANT]
-> 本仓库 `compose.yaml` 默认 `build: .` 本地构建（运行本分支代码）。**不要**改回 `ghcr.io/thenetsky/...` 官方镜像——那是原作者的原版代码，不含中国热搜 / PushPlus 等国内适配。
-
-### 1. 准备账号文件（.env）
+### 方式一：Docker（推荐）
 
 ```bash
-cp env.example .env
-```
+cp env.example .env          # 填入 ACCOUNT_1_EMAIL / ACCOUNT_1_PASSWORD
+cp config.example.json config/config.json
 
-编辑 `.env`，至少填一个账号：
-
-```dotenv
-ACCOUNT_1_EMAIL=you@example.com
-ACCOUNT_1_PASSWORD=your_password
-```
-
-> 多账号按 `ACCOUNT_2_*`、`ACCOUNT_3_*` 递增（编号无需连续，按编号升序运行）。完整字段见 `env.example`。
-
-> ⚠️ **Docker 用户注意：`.env` 不会自动传入容器**。Compose 只把同目录 `.env` 用于变量替换；若你自行编写/裁剪了 `compose.yaml`，必须保留 `env_file` 段（本仓库模板已内置），否则容器里一个账号都读不到：
->
-> ```yaml
-> services:
->   microsoft-rewards-script:
->     env_file:
->       - path: .env
-> ```
->
-> 另外用**列表式** `environment:`（`- KEY=value`）时值**不要加引号**——引号会成为值的一部分（如 `- CRON_SCHEDULE="0 9 * * *"` 会让 cron 表达式带引号而失效）；映射式（`KEY: value`）则按 YAML 规则正常加引号。
-
-### 2. 编辑 compose.yaml（可选）
-
-默认配置开箱即用，如需调整取消对应行注释即可：
-
-- `TZ`：时区（默认 `Asia/Shanghai`）
-- `CRON_SCHEDULE`：调度（默认 `0 7 * * *`，每天 7 点）
-- `RUN_ON_START`：容器启动时是否立即跑一次（默认 `true`）
-- `CONFIG_SEARCH_QUERY_ENGINES`：查询源，国内推荐 `china,local`
-- `CONFIG_CHINA_API_APPKEY`：gmya.net appkey，解除免费档限流（留空走免费档）
-- `CONFIG_PUSHPLUS_*` / `CONFIG_SERVERCHAN_*` / `CONFIG_CLAWBOT_*`：微信推送
-
-> 完整的 `CONFIG_*` 环境变量列表见[配置参考](#️-配置参考)各表格。`CONFIG_*` 每次启动都会覆盖 `./config/config.json`。
-
-### 3. 构建并启动
-
-```bash
 docker compose up -d --build
+docker compose logs -f
 ```
 
-> **重要**：改了代码或 Dockerfile 后必须加 `--build` 重建镜像，否则跑的还是旧镜像。
-
-### 4. 数据持久化
-
-容器挂载了两个目录，重建容器不丢数据：
-
-- `./config/`：配置文件（首次运行自动生成 `config.json`）
-- `./sessions/`：登录会话（首次登录后 cookie 存这里，后续自动复用）
-
-> 💡 使用微信 ClawBot 推送时，建议先在本地跑一次完成扫码，再把生成的 `clawbot-auth.json` 挂载进容器（或配合 `API_MODE` 在容器内完成扫码）。
-
-### 常用命令
+国内网络下构建 npm 依赖可能很慢，可指定镜像源：
 
 ```bash
-docker compose up -d --build   # 构建+启动
-docker compose logs -f          # 查看日志
-docker compose down             # 停止并删除容器
-docker compose restart          # 重启（不重建）
+NPM_REGISTRY=https://registry.npmmirror.com docker compose up -d --build
 ```
 
-</details>
+> `config/`、`sessions/`、`diagnostics/` 都是挂载卷，重建容器不丢数据。
+> 若 `patchright install chromium` 阶段卡住，给 Docker 配置代理，或先在宿主机执行一次 `npm run install:browser` 再构建。
+
+### 方式二：Windows 本地运行
+
+```powershell
+npm ci
+npm run install:browser
+npm run build
+Copy-Item env.example .env
+Copy-Item config.example.json config.json
+npm start
+```
+
+`config.json` 修改后需重新 `npm run build` 再启动（Docker 下改为 `docker compose up -d --build`）。
+
+### 多账户
+
+在 `.env` 里追加编号块即可，编号可以不连续：
+
+```ini
+ACCOUNT_1_EMAIL=first@example.com
+ACCOUNT_1_PASSWORD=...
+ACCOUNT_1_GEO_LOCALE=CN
+ACCOUNT_1_LANG_CODE=zh-CN
+
+ACCOUNT_2_EMAIL=second@example.com
+ACCOUNT_2_PASSWORD=...
+ACCOUNT_2_GEO_LOCALE=CN
+ACCOUNT_2_LANG_CODE=zh-CN
+```
+
+每个账户支持独立代理（`ACCOUNT_N_PROXY_*`）、TOTP（`ACCOUNT_N_TOTP_SECRET`）、指纹持久化（`ACCOUNT_N_SAVE_FINGERPRINT_*`）。
 
 ---
 
-## 🖥️ 控制 API 与面板
+## 配置重点
 
-可选的控制 API 允许本地面板或其他受信工具通过 HTTP 监控和控制脚本（`API_MODE=true` + `API_TOKEN` 开启）：
+完整配置项见上游 [docs/usage.md](docs/usage.md)（英文），国内相关部分如下。
 
-- 查询健康状态 / 运行状态 / 实时积分 / 日志 / 账户摘要 / 运行历史
-- `POST /start` 启动全部或指定账户，`POST /stop`、`POST /restart` 控制
-- `GET /events` SSE 实时日志流；会话查询与删除
-- 完整文档见 [`scripts/api/README.md`](scripts/api/README.md)
+### 1. 查询词来源
 
-配套 Web 面板推荐 [Rewards Dashboard](https://github.com/mgrimace/rewards-dashboard)，可管理运行、账户、调度、日志、积分。
+```json
+"searchSettings": {
+    "queryEngines": ["china", "local"],
+    "chinaApi": { "appkey": "" }
+}
+```
 
----
+- `china`：中国热搜（百度/头条/抖音/微博/知乎）。**免费档有限流**，命中后会返回 403「请求过于频繁」；
+  到 <https://gmya.net> 申请 appkey 填入 `chinaApi.appkey`（或环境变量 `CONFIG_CHINA_API_APPKEY`）即可解除。
+- `local`：本地中文词库（`src/data/search-queries.json` 的 `zh` 段）。
 
-## ⚙️ 配置参考
+实现要点（`src/rewards/shared/query/QuerySources.ts`）：
 
-> 编辑 `config.json`（Windows）或通过 `CONFIG_*` 环境变量（Docker）自定义行为。数组类 `CONFIG_*` 值用逗号分隔（如 `"china,local"`）；正则类只能写在 `config.json`。
-> 下面按功能分组，**点击各 summary 展开详情**。
+- 源顺序每次随机打散，打散后多样性更好、也更难被单一站点限流；
+- 有 appkey：并行取 2 个源；无 appkey：只取 1 个源，并在请求之间插入 1.2–2.5 秒随机退避；
+- 命中限流后对后续源做 1.5× 指数退避；
+- 首选源全部失败时按顺序尝试备用源，拿到数据即停；
+- 全部失败只告警、不抛异常，自动回落到其它查询引擎。
 
-<details>
-<summary><b>🔵 Core / 核心配置</b></summary>
+### 2. 微信推送
 
-| 设置                        | 描述                                | 默认值          | Docker 环境变量                       |
-| --------------------------- | ----------------------------------- | --------------- | ------------------------------------- |
-| `sessionPath`               | 存储浏览器会话的目录                | `sessions`      | —                                     |
-| `headless`                  | 在后台运行浏览器                    | `false`（可见） | Docker 强制 `true`                    |
-| `browserChannel`            | `chromium`（内置补丁版，推荐）或 `msedge`（系统真实 Edge；⚠️ 实验性：Edge 152 + Playwright 1.6x 访问 rewards.bing.com 会崩溃，见 [playwright#41438](https://github.com/microsoft/playwright/issues/41438)，修复后可重试） | `chromium` | `CONFIG_BROWSER_CHANNEL`              |
-| `clusters`                  | 并发账户集群数                      | `1`             | `CONFIG_CLUSTERS`                     |
-| `errorDiagnostics`          | 出错时保存诊断信息到 `diagnostics/` | `false`         | `CONFIG_ERROR_DIAGNOSTICS`            |
-| `ensureStreakProtection`    | 确保连击保护已开启                  | `true`          | `CONFIG_ENSURE_STREAK_PROTECTION`     |
-| `autoClaimPunchcardRewards` | 自动领取已完成的打卡奖励            | `false`         | `CONFIG_AUTO_CLAIM_PUNCHCARD_REWARDS` |
-| `skipNonPointTasks`         | 跳过无积分奖励的任务                | `true`          | `CONFIG_SKIP_NON_POINT_TASKS`         |
-| `prewarmDesktopLogin`       | 移动端登录后立即完成桌面端登录并保存会话（需要手机批准的账户可把两次批准集中在运行开头），之后桌面阶段直接复用会话 | `false` | `CONFIG_PREWARM_DESKTOP_LOGIN`        |
-| `accountDelay.min` / `.max` | 下一账户开始前的延迟                | `1min` - `3min` | `CONFIG_ACCOUNT_DELAY_MIN` / `_MAX`   |
-| `searchOnBingLocalQueries`  | ExploreOnBing 活动使用本地词库      | `false`         | `CONFIG_SEARCH_ON_BING_LOCAL`         |
-| `globalTimeout`             | 所有操作的超时时间                  | `30sec`         | `CONFIG_GLOBAL_TIMEOUT`               |
-
-</details>
-
-<details>
-<summary><b>🗂 Workers / 任务开关</b></summary>
-
-| 设置                           | 描述                         | 默认值  | Docker 环境变量                      |
-| ------------------------------ | ---------------------------- | ------- | ------------------------------------ |
-| `workers.doDailySet`           | 完成每日集活动               | `true`  | `CONFIG_WORKER_DAILY_SET`            |
-| `workers.doClaimBonusPoints`   | 领取 dashboard 奖励积分      | `true`  | `CONFIG_WORKER_CLAIM_BONUS_POINTS`   |
-| `workers.doMorePromotions`     | 完成更多促销活动             | `true`  | `CONFIG_WORKER_MORE_PROMOTIONS`      |
-| `workers.doPunchCards`         | 完成打卡活动                 | `true`  | `CONFIG_WORKER_PUNCH_CARDS`          |
-| `workers.doAppPromotions`      | 完成 App 端活动              | `true`  | `CONFIG_WORKER_APP_PROMOTIONS`       |
-| `workers.doDesktopSearch`      | 执行桌面搜索                 | `true`  | `CONFIG_WORKER_DESKTOP_SEARCH`       |
-| `workers.doMobileSearch`       | 执行移动搜索                 | `true`  | `CONFIG_WORKER_MOBILE_SEARCH`        |
-| `workers.doBonusSearches`      | 超过上限后继续刷加成搜索     | `false` | `CONFIG_WORKER_BONUS_SEARCHES`       |
-| `workers.doDailyCheckIn`       | 完成每日签到                 | `true`  | `CONFIG_WORKER_DAILY_CHECKIN`        |
-| `workers.doReadToEarn`         | 完成阅读赚取（Read-to-Earn） | `true`  | `CONFIG_WORKER_READ_TO_EARN`         |
-| `workers.doActivateSearchPerk` | 激活"再搜 N 次"加成 perk     | `true`  | `CONFIG_WORKER_ACTIVATE_SEARCH_PERK` |
-| `workers.doVisualSearch`       | 视觉搜索连击与搜索           | `false` | `CONFIG_WORKER_VISUAL_SEARCH`        |
-
-| 设置（activities）        | 描述                    | 默认值 | Docker 环境变量                  |
-| ------------------------- | ----------------------- | ------ | -------------------------------- |
-| `activities.urlReward`    | 完成 URL 奖励活动       | `true` | `CONFIG_ACTIVITY_URL_REWARD`     |
-| `activities.searchOnBing` | 完成 ExploreOnBing 活动 | `true` | `CONFIG_ACTIVITY_SEARCH_ON_BING` |
-
-</details>
-
-<details>
-<summary><b>🔍 Search / 搜索配置</b></summary>
-
-| 设置                                      | 描述                              | 默认值               | Docker 环境变量                         |
-| ----------------------------------------- | --------------------------------- | -------------------- | --------------------------------------- |
-| `searchSettings.scrollRandomResults`      | 随机滚动搜索结果                  | `true`               | `CONFIG_SEARCH_SCROLL_RANDOM`           |
-| `searchSettings.clickRandomResults`       | 点击随机结果链接                  | `true`               | `CONFIG_SEARCH_CLICK_RANDOM`            |
-| `searchSettings.runOnZeroPoints`          | 无剩余搜索积分时仍执行搜索        | `false`              | `CONFIG_SEARCH_RUN_ON_ZERO_POINTS`      |
-| `searchSettings.maxBonusSearches`         | 单次运行最多加成搜索数            | `110`                | `CONFIG_SEARCH_MAX_BONUS_SEARCHES`      |
-| `searchSettings.parallelSearching`        | 桌面/移动搜索并行执行             | `false`              | `CONFIG_SEARCH_PARALLEL`                |
-| `searchSettings.clusterSearch`            | Bing 建议聚类扩展主词             | `true`               | `CONFIG_SEARCH_CLUSTER`                 |
-| `searchSettings.queryEngines`             | 查询源数组                        | `["china", "local"]` | `CONFIG_SEARCH_QUERY_ENGINES`           |
-| `searchSettings.searchResultVisitTime`    | 搜索结果页停留时间                | `20sec`              | `CONFIG_SEARCH_VISIT_TIME`              |
-| `searchSettings.searchDelay.min` / `.max` | 搜索之间的延迟                    | `6min` - `12min`     | `CONFIG_SEARCH_DELAY_MIN` / `_MAX`      |
-| `searchSettings.readDelay.min` / `.max`   | 阅读赚取的阅读间隔                | `6min` - `11min`     | `CONFIG_SEARCH_READ_DELAY_MIN` / `_MAX` |
-| `searchSettings.chinaApi.appkey`          | gmya.net appkey（解除免费档限流） | `""`                 | `CONFIG_CHINA_API_APPKEY`               |
-
-> 📌 **注**：以上默认值为本仓库 `config.example.json` 的国内防风控调优值（官方上游默认更激进：30sec-1min 间隔、并行开启）。
-
-#### 国内推荐配置
-
-```jsonc
-// config.json 关键项（.env 中账号 LANG_CODE=zh-CN、GEO_LOCALE=CN）
-{
-    "searchSettings": {
-        "queryEngines": ["china", "local"],
-        "chinaApi": { "appkey": "" } // 留空走免费档；填 appkey 解除限流
+```json
+"webhook": {
+    "pushplus": {
+        "enabled": true,
+        "token": "你的 pushplus token",
+        "title": "微软奖励脚本",
+        "template": "markdown"
+    },
+    "serverchan": {
+        "enabled": true,
+        "sendKey": "SCT...",
+        "title": "微软奖励脚本"
     }
 }
 ```
 
-</details>
+两个渠道可同时开启，也可用环境变量：`CONFIG_PUSHPLUS_ENABLED` / `CONFIG_PUSHPLUS_TOKEN` /
+`CONFIG_SERVERCHAN_ENABLED` / `CONFIG_SERVERCHAN_SENDKEY`。
 
-<details>
-<summary><b>🌐 queryEngines 查询源说明（含国内可用性）</b></summary>
+> 默认配置下所有日志级别都会被推送（上游行为）。如果只想收到结果，建议开启 Webhook 过滤：
+>
+> ```json
+> "webhookLogFilter": { "enabled": true, "mode": "whitelist", "keywords": ["摘要", "RUN-END", "ERROR"] }
+> ```
 
-`searchSettings.queryEngines` 决定搜索主词来源，多源词池合并去重；开启 `clusterSearch` 时每个主词再经 Bing 建议扩展成一组，完成一组才进入下一主词。
+### 3. 国内默认值
 
-**核心源：**
+`config.example.json` 用的是**保守档**：搜索间隔 6–12 分钟、串行搜索、随机滚动与随机点击、超时放 50 秒。
+这样单账户一轮会比上游默认（30 秒–1 分钟间隔）慢很多，但风控特征更接近真人。
+想跑快就改 `searchSettings.searchDelay` / `readDelay` / `parallelSearching`。
 
-| 值           | 来源                                           | 国内可用性    |
-| ------------ | ---------------------------------------------- | ------------- |
-| `china`      | 中国热搜（gmya.net：百度/头条/抖音/微博/知乎） | ✅ 直连，推荐 |
-| `local`      | 本地查询词（`search-queries.json` 中文词库）   | ✅ 离线       |
-| `google`     | Google Trends 热搜                             | ❌ 需代理     |
-| `wikipedia`  | 维基百科热门条目                               | ❌ 需代理     |
-| `wikirandom` | 随机维基百科条目                               | ❌ 需代理     |
-| `hackernews` | Hacker News 首页                               | ❌ 需代理     |
-| `reddit`     | Reddit r/popular                               | ❌ 需代理     |
-
-**RSS 源**（点分路径：`rss` 全部 / `rss.<site>` 站点 / `rss.<site>.<endpoint>` 单源）：
-
-| 值                                 | 内容                                                        |
-| ---------------------------------- | ----------------------------------------------------------- |
-| `rss.googleTrends`                 | Google Trends（`gb`、`us`）                                 |
-| `rss.googleNews`                   | Google News（`gb`/`us`/`world`/`technology`/`business`）    |
-| `rss.bbc`                          | BBC News（`top`/`world`/`technology`/`business`/`science`） |
-| `rss.guardian`                     | The Guardian（`international`/`world`/`technology`）        |
-| `rss.theVerge` / `rss.arsTechnica` | The Verge / Ars Technica 全部                               |
-| `rss.reddit`                       | Reddit 列表源（`popular`/`worldnews`/`technology`）         |
-
-自定义 RSS 源在 `src/constants/rssFeeds.ts` 中添加。
-
-**china 源策略：**
-
-- 随机选取热榜源聚合（免费档 1 个、配置 appkey 2 个），单源失败自动 fallback 到其余源
-- 命中免费档限流（403）时自动退避，并提示配置 `chinaApi.appkey`
-- 主源优先：主源原始词累计达 20 即停止请求后续源；主源不足时后续源随机抽样 50 条补充
-
-> [!NOTE]
-> `google` / `wikipedia` / `reddit` / `hackernews` 源及多数 RSS 源在国内网络不可直连，选了也会静默失败降级到其他源；无代理环境直接用 `china,local` 即可。
-
-</details>
-
-<details>
-<summary><b>🧪 Experimental / 实验特性（默认关闭，可能变化）</b></summary>
-
-| 设置                           | 描述                                 | 默认值  | Docker 环境变量                          |
-| ------------------------------ | ------------------------------------ | ------- | ---------------------------------------- |
-| `experimental.apiSearch`       | 用 HTTP 请求代替浏览器执行 Bing 搜索 | `false` | `CONFIG_EXPERIMENTAL_API_SEARCH`         |
-| `experimental.apiSearchOnBing` | 用 HTTP 完成 ExploreOnBing 活动      | `false` | `CONFIG_EXPERIMENTAL_API_SEARCH_ON_BING` |
-| `experimental.blockMedia`      | 拦截浏览器图片/媒体请求省流量        | `false` | `CONFIG_EXPERIMENTAL_BLOCK_MEDIA`        |
-| `experimental.edgeBrowsing`    | 后台 HTTP 上报 30 分钟 Edge 浏览活动 | `false` | `CONFIG_EXPERIMENTAL_EDGE_BROWSING`      |
-
-> 💡 API 路径更快但依赖新版面板接口；若 ExploreOnBing 活动积分未到账，关闭 `apiSearchOnBing` 回退浏览器路径。
-
-</details>
-
-<details>
-<summary><b>📝 Logging / 日志</b></summary>
-
-| 设置                             | 描述                                | 默认值                 | Docker 环境变量              |
-| -------------------------------- | ----------------------------------- | ---------------------- | ---------------------------- |
-| `debugLogs`                      | 输出 DEBUG 级别日志                 | `false`                | `CONFIG_DEBUG_LOGS`          |
-| `consoleLogFilter.enabled`       | 启用控制台日志过滤                  | `false`                | `CONFIG_LOG_FILTER_ENABLED`  |
-| `consoleLogFilter.mode`          | 过滤模式（`whitelist`/`blacklist`） | `whitelist`            | `CONFIG_LOG_FILTER_MODE`     |
-| `consoleLogFilter.levels`        | 过滤的日志级别                      | `["error", "warn"]`    | `CONFIG_LOG_FILTER_LEVELS`   |
-| `consoleLogFilter.keywords`      | 过滤关键词                          | `["starting account"]` | `CONFIG_LOG_FILTER_KEYWORDS` |
-| `consoleLogFilter.regexPatterns` | 过滤正则                            | `[]`                   | 仅 config.json               |
-
-> 📌 日志默认全量写入 `logs/YYYY-MM-DD.log`（按本地日期分文件），进程启动时自动清理 90 天前的旧文件（`src/logging/Logger.ts` 中的 `LOG_RETENTION_DAYS` 可调整）。
-
-</details>
-
-<details>
-<summary><b>🧬 Humanize / 拟人化运行策略（V4-china 特有，默认关闭）</b></summary>
-
-降低风控特征的运行策略集合。`humanize.enabled=false`（默认）时以下全部不生效，行为与原版一致。
-
-| 设置                                         | 描述                                                                 | 默认值            | Docker 环境变量                                       |
-| -------------------------------------------- | -------------------------------------------------------------------- | ----------------- | ----------------------------------------------------- |
-| `humanize.enabled`                           | 总开关                                                               | `false`           | `CONFIG_HUMANIZE_ENABLED`                             |
-| `humanize.skipWhenCompletedToday`            | 当天已成功运行过（`logs/last-success.txt`）则再次启动时直接退出，配合早晚两次定时实现"兜底轮自动跳过" | `false` | `CONFIG_HUMANIZE_SKIP_WHEN_COMPLETED`                 |
-| `humanize.quietHours`                        | 静默时段数组；运行中进入时段自动挂起到结束，启动时落在时段内也等待后再跑。支持 `start > end` 跨午夜 | `[]`    | 仅 config.json                                        |
-| `humanize.searchTargetRatio.min` / `.max`    | 每轮搜索目标完成度随机区间（移动/桌面各自抽取），保留分向下取整到 3 的倍数 | `0.85` - `1.0` | `CONFIG_HUMANIZE_SEARCH_TARGET_RATIO_MIN` / `_MAX`    |
-| `humanize.readToEarnArticles.min` / `.max`   | Read-to-Earn 每轮随机阅读篇数上限区间                                 | `7` - `10`        | `CONFIG_HUMANIZE_READ_TO_EARN_MIN` / `_MAX`           |
-
-`quietHours` 规则示例（days 支持全名或缩写，未列出的天不静默）：
-
-```json
-"quietHours": [
-    { "days": ["monday", "tuesday", "wednesday", "thursday", "friday"], "start": "12:00", "end": "14:30" },
-    { "days": ["saturday"], "start": "12:00", "end": "19:00" }
-]
-```
-
-> 💡 想手动强制重跑当天已成功的任务：临时把 `skipWhenCompletedToday` 改为 `false`（或删除 `logs/last-success.txt`）。
-> 拟人化参数不分轮次：无论第几次运行都用同一套随机规则，作用于"当时的剩余额度"。
-
-</details>
-
-<details>
-<summary><b>🌍 Proxy / 代理</b></summary>
-
-| 设置                            | 描述                                | 默认值  | Docker 环境变量                          |
-| ------------------------------- | ----------------------------------- | ------- | ---------------------------------------- |
-| `proxy.queryEngine`             | 查询源 HTTP 请求走账户代理          | `true`  | `CONFIG_PROXY_QUERY_ENGINE`              |
-| `proxy.ignoreCertificateErrors` | 关闭浏览器 TLS 校验（拦截型代理用） | `false` | `CONFIG_PROXY_IGNORE_CERTIFICATE_ERRORS` |
-
-**账户级代理**（`.env` 中按账号配置）：
-
-- 浏览器代理：`ACCOUNT_N_PROXY_URL`（支持 `http://`、`https://`、`socks4://`、`socks5://`，裸主机名视为 HTTP）
-- HTTP 代理认证：`ACCOUNT_N_PROXY_USERNAME` / `ACCOUNT_N_PROXY_PASSWORD`（Patchright 不支持 SOCKS 浏览器认证）
-- 查询源请求代理：`ACCOUNT_N_PROXY_HTTP=true` 并配置 `ACCOUNT_N_PROXY_*`
-
-> ⚠️ `ignoreCertificateErrors` 会削弱整个浏览器上下文的 TLS 保护，仅在受信拦截代理无法出示有效证书时开启。
-
-</details>
+代码内置默认值（`src/config/Defaults.ts`）只改了查询源为 `["china", "local"]`，其余时序保持上游，
+便于对照上游文档排查问题。
 
 ---
 
-## 🔔 通知渠道
+## 中文日志的范围（重要）
 
-均在 `webhook` 对象下，**可同时开启多个**：
+上游 v5 的日志分散在 200+ 个源文件里，逐条翻译既不可能长期跟上上游，也会让 `grep` 上游文档失效。
+本版采取**关键路径中文化**：
 
-| 设置                                                                        | 描述                                            | 默认值  | Docker 环境变量                                     |
-| --------------------------------------------------------------------------- | ----------------------------------------------- | ------- | --------------------------------------------------- |
-| `webhook.discord.enabled` / `.url`                                          | Discord 推送                                    | `false` | `CONFIG_DISCORD_ENABLED` / `_URL`                   |
-| `webhook.telegram.enabled` / `.botToken` / `.chatId`                        | Telegram 推送                                   | `false` | `CONFIG_TELEGRAM_ENABLED` / `_BOTTOKEN` / `_CHATID` |
-| `webhook.ntfy.enabled` / `.url` / `.topic` / `.token` 等                    | ntfy 推送                                       | `false` | `CONFIG_NTFY_*`                                     |
-| `webhook.pushplus.enabled` / `.token` / `.title` / `.template` / `.channel` | PushPlus 微信推送                               | `false` | `CONFIG_PUSHPLUS_*`                                 |
-| `webhook.serverchan.enabled` / `.sendKey` / `.title`                        | Server酱 微信推送（Turbo）                      | `false` | `CONFIG_SERVERCHAN_ENABLED` / `_SENDKEY` / `_TITLE` |
-| `webhook.clawbot.enabled` / `.authFile`                                     | 微信 ClawBot 推送                               | `false` | `CONFIG_CLAWBOT_ENABLED` / `_AUTHFILE`              |
-| `webhook.webhookLogFilter.*`                                                | Webhook 逐条日志过滤（结构同 consoleLogFilter） | `false` | `CONFIG_WEBHOOK_LOG_FILTER_*`                       |
+- 每轮结束额外输出 `RUN-END-摘要`：状态、账户数、获得积分、运行前后余额、耗时；
+- 每个账户结束额外输出 `ACCOUNT-END-摘要`：状态、积分、余额、用时、任务完成统计、失败原因；
+- 中国热搜相关的日志（`SEARCH-CHINA`）为英文结构 + 明确字段，便于定位限流；
+- 推送标题默认中文。
 
-> 💡 **国内推荐**：**PushPlus** 或 **微信 ClawBot**（均直达微信，无需翻墙）。Discord / Telegram / ntfy 需要能访问对应服务。
-> 运行结束的中文积分摘要会一次性推送（不逐条推日志）。
-
-<details>
-<summary><b>🤖 微信 ClawBot 推送（V4-china 特有）</b></summary>
-
-基于腾讯官方微信 ClawBot（iLink 灰度接口）直连推送，**免费、无第三方服务、消息直达微信聊天列表**。需要你的微信号有 ClawBot 灰度资格（微信 → 我 → 设置 → 插件）。
-
-使用只需三步：
-
-1. `config.json` 中开启：`"webhook": { "clawbot": { "enabled": true } }`
-2. 正常启动脚本（如 `npm start`）——检测到未登录时，终端会**自动弹出二维码**，手机微信扫码确认（等待 5 分钟，超时则本次跳过推送，任务照常运行）
-3. 登录后终端提示激活时，在手机微信里给「微信 ClawBot」**发送一条任意消息**（等待 2 分钟）——脚本会自动抓取激活凭证并回发一条"✅ 通知已接通"
-
-之后每次运行结束，积分摘要会自动推送到你的微信。凭证保存在项目根 `clawbot-auth.json`（已加入 .gitignore），多台机器可直接复制该文件共用。也可用 `npm run clawbot:login` 手动完成登录+激活。凭证过期（服务端 -14）时自动清除、下次运行重新扫码；推送上下文失效（-2）时下次运行会重新等待激活消息。
-
-</details>
+其余任务级日志保持英文。如果你需要更彻底的中文化，可以在 `consoleLogFilter` / `webhookLogFilter`
+里按需筛选，或直接改 `Logger` 调用点——但请注意这会让后续同步上游产生冲突。
 
 ---
 
-## ❓ 常见问题
+## 目录结构（相对上游的变化）
 
-<details>
-<summary><b>报错 <code>Error: browserType.launch: Executable doesn't exist</code> 怎么办？</b></summary>
-
-Chromium 没装上，手动安装：
-
-```bash
-npx patchright install chromium
 ```
-
-</details>
-
-<details>
-<summary><b>登录失败 / 卡住 / 每次都要重新登录？</b></summary>
-
-首次运行时请**手动完成网页登录**一次，等待脚本自动接管剩余流程。登录后的 cookie 会保存到 `sessions/` 目录，后续运行会自动复用。
-
-⚠️ `sessions/` 目录**需要多备份**，丢了就要重新登录。
-
-也可用会话管理命令查看/清理：
-
-```bash
-npm run clear-sessions -- list          # 列出所有账户会话
-npm run clear-sessions -- email user@example.com   # 删除指定账户会话
-npm run clear-sessions -- all           # 删除全部会话
+src/
+  config/                         # + chinaApi、pushplus、serverchan 的类型/默认值/校验/环境变量
+  logging/
+    PushPlus.ts                   # 新增
+    ServerChan.ts                 # 新增
+    RunSummaryZh.ts               # 新增：中文摘要文案
+    Notifications.ts              # 接入两个新渠道
+    Logger.ts                     # 修复 hasWebhook 未包含新渠道的问题
+  rewards/shared/query/
+    QuerySources.ts               # + getChinaHotTopics()、ChinaApiRateLimitError
+    QueryEngine.ts                # + china 处理器
+  rewards/shared/data/
+    AccountData.ts                # + 旧版 getuserinfo 剔除 _U cookie
+  data/search-queries.json        # + zh 词库
+config.example.json               # 国内保守档 + 新渠道
+env.example                       # 中文注释 + 新环境变量
+compose.yaml                      # TZ=Asia/Shanghai、NPM_REGISTRY、国内开关示例
+Dockerfile                        # + NPM_REGISTRY 构建参数
 ```
-
-也可以用 `manual-login` 命令手动登录指定账户：它会打开有界面的浏览器（不走自动登录流程），你手动完成微软登录后，脚本检测到浏览器在 `rewards.bing.com` 停留 5 秒即自动保存会话并关闭浏览器：
-
-```bash
-npm run manual-login -- --email user@example.com                # 创建/刷新移动端会话
-npm run manual-login -- --email user@example.com --platform desktop   # 仅桌面端会话
-npm run manual-login -- --email user@example.com --platform both      # 桌面+移动依次创建
-npm run manual-login -- --email user@example.com --fresh        # 忽略已有 cookie 全新登录
-```
-
-**需要手机 Authenticator 批准登录的账户**，桌面端会话失效时第二次批准会出现在运行后段（几小时后），容易错过。开启 `"prewarmDesktopLogin": true` 后，桌面端登录会提前到移动端登录完成后立刻执行并保存会话（两次批准集中在运行开头几分钟内），后续桌面任务直接复用会话不再触发批准：
-
-```json
-{
-    "prewarmDesktopLogin": true
-}
-```
-
-</details>
-
-<details>
-<summary><b>修改 <code>.env</code> / <code>config.json</code> 后怎么生效？</b></summary>
-
-- **Win 环境**：`.env` 在脚本启动时读取，改完重新 `npm start` 即可；`config.json` 改完建议 `npm run build` 后再启动
-- **Docker 环境**：改 `.env` 或 `compose.yaml` 后用 `docker compose up -d --build` 生效；不要手动改容器内配置文件
-
-</details>
-
-<details>
-<summary><b>Docker 改了配置为什么不生效？</b></summary>
-
-改完 `compose.yaml` 或代码后，必须加 `--build` 重建镜像：
-
-```bash
-docker compose up -d --build
-```
-
-不加 `--build` 跑的是旧镜像。
-
-</details>
-
-<details>
-<summary><b>国内查询词被限流（403）怎么办？</b></summary>
-
-gmya.net 免费档对连续请求有频率限制。解决方法：
-
-到 [gmya.net](https://gmya.net) 申请 appkey，填入 `searchSettings.chinaApi.appkey`（Docker 用 `CONFIG_CHINA_API_APPKEY` 环境变量），即可解除限流。
-
-</details>
-
-<details>
-<summary><b>v3 的 <code>accounts.json</code> / <code>config.json</code> 能直接用吗？</b></summary>
-
-不能。本分支与 v3 及更早版本**均不兼容**：
-
-- 账号迁移到 `.env`（`ACCOUNT_1_EMAIL` 等，参考 `env.example`）
-- 配置文件基于本分支 `config.example.json` 重新生成
-
-</details>
-
-<details>
-<summary><b>ClawBot 推送没收到 / 提示凭证过期？</b></summary>
-
-- 确认微信号有 ClawBot 灰度资格（微信 → 我 → 设置 → 插件），且首次扫码后给「微信 ClawBot」发过一条消息激活
-- 凭证过期（服务端 -14）会自动清除，下次运行重新扫码；或手动 `npm run clawbot:login`
-- iLink 服务端限频约 7 条 / 5 分钟，摘要为一次性推送，一般不会触发
-
-</details>
 
 ---
 
-## 🩹 本地补丁（PATCHES）
+## 验证范围（请务必阅读）
 
-本仓库 fork 自上游，并在上游基础上追加了少量修复。这些修复的现象、根因、改动与实测数据，
-以及从上游同步后如何确认补丁还在，统一记录在 **[PATCHES.md](./PATCHES.md)**。
+已在真实机器上验证（Linux x86_64，Node **v24.21.0**，Docker **28.5.2** / Compose v2.40.3）：
 
-> 补丁都改在 `src/` 源码里，只要源码没被上游覆盖，重新执行 `docker compose up -d --build` 依然带着修复。
+- ✅ `npm ci` + `npm run build` + `npm run check:api` + `npm run lint` + `npm run format:check` 全部通过
+- ✅ `docker build` 成功：Node 24 builder 内编译、`NPM_REGISTRY` 生效、Chromium headless shell（120 MiB）下载并打包
+- ✅ `docker compose config` 校验通过（含 `env_file` 长语法与 `NPM_REGISTRY` 构建参数）
+- ✅ 容器内 `validateConfig(config.example.json)`：`china` / `chinaApi` / `pushplus` / `serverchan` 均保留，0 条 warning
+- ✅ 容器内走真实网络调用 `getChinaHotTopics()`：**50 条热搜、682 ms**
+- ✅ 容器内由 entrypoint 生成 `config/config.json`：确认新字段全部落盘（`queryEngines: ["china","local"]`、`chinaApi`、`pushplus`、`serverchan`）
+- ✅ Control API `/health` 返回 `{"ok":true,"version":"5.0.0-ch.1",...}`
+- ✅ `getChinaHotTopics()` 桩测试：聚合去重、403 后走备用源、全源失败返回空数组且不抛异常
 
----
+**未做**：真实账号登录与任务执行（需要可用的微软账号）。首次运行请先盯一遍日志。
 
-## ⚠️ 注意事项
+测试过程中发现并已修正的一个部署风险：上游 compose 使用 `image: microsoft-rewards-script:china` 与
+`container_name: microsoft-rewards-script`，如果本机已在跑 V4-china，`docker compose up` 会覆盖它的镜像标签。
+本仓库已改为 `microsoft-rewards-script:v5-china` / `microsoft-rewards-script-v5`。
 
-- `.env` 含账户密码，**严禁提交或分享**（已加入 `.gitignore`）；`clawbot-auth.json` 含推送凭证，同样勿提交。
-- 如果出现无法自动登录的情况，请在代码执行登录过程中**手动完成网页登录**，等待代码自动完成剩余流程。登录信息保存在 `sessions/` 目录（需要多备份）。
-- **Win 环境**：复制或重命名 `config.example.json` 为 `config.json`（项目根目录）并自定义偏好；修改后运行 `npm run build` 重新构建。
-- **Docker 环境**：账号和行为配置通过 `.env` 和 `compose.yaml` 传入；`CONFIG_*` 每次启动都会覆盖 `./config/config.json`。
-- 之前的 `accounts.json` 和旧版 `config.json` 与本分支不兼容。
-
----
-
-## 📜 同步与致谢
-
-本项目 fork 自 [TheNetsky/Microsoft-Rewards-Script](https://github.com/TheNetsky/Microsoft-Rewards-Script)，`V4-china` 分支基于上游 **v4 分支**（新版 dashboard 架构）做国内本地化：
-
-- 中国热搜查询源（gmya.net 聚合百度/头条/抖音/微博/知乎，多源随机 + 限流退避 + appkey 解限流）
-- PushPlus / 微信 ClawBot 微信推送渠道
-- 国内默认值调优（china+local 引擎、搜索间隔 6-12min、防风控默认项）
-- 中文词库（`search-queries.json`）与全量日志中文化
-- Docker 基础镜像走 m.daocloud.io 加速；浏览器版本接口不可达时自动回退内置版本
-
-若有侵权请联系删除。
-
-**本项目所有改动基于 Win11 系统测试。其他系统未测试，请根据原项目相关配置设置。**
-
-| 项目         | 信息                                                                                                      |
-| ------------ | --------------------------------------------------------------------------------------------------------- |
-| 上游仓库     | [TheNetsky/Microsoft-Rewards-Script](https://github.com/TheNetsky/Microsoft-Rewards-Script)（v4 分支）    |
-| 本仓库       | [chiihero/Microsoft-Rewards-Script](https://github.com/chiihero/Microsoft-Rewards-Script) `V4-china` 分支 |
-| 当前版本     | 4.3.0                                                                                                     |
-| 最后同步上游 | 2026-08-16                                                                                                |
+如果你的账号仍在**旧版 Bing Rewards 面板**，本版（与上游 v5 一样）不适用。
 
 ---
 
-## ⚠️ 免责声明
+## 常见问题
 
-**风险自负！** 使用自动化脚本时，您的 Microsoft Rewards 账户可能会被暂停或禁止。
+**启动即退出，提示 Node 版本不满足？**
+`Validator.checkNodeVersion()` 会强制 `engines: >=24`。升级 Node，或在 Docker 内运行。
 
-此脚本仅供教育目的。作者对 Microsoft 采取的任何账户操作不承担责任。
+**热搜一直拿不到？**
+先看日志里的 `SEARCH-CHINA`。出现 `rate limited` 就是免费档限流，去申请 appkey；出现超时多半是网络不通，
+检查 `proxy.queryEngine` 是否要让查询源走代理。
+
+**微信收不到推送？**
+确认 `XX.enabled=true` 且 token/sendKey 非空；`webhookLogFilter` 若开启白名单，关键词必须能匹配到内容。
+
+**改配置后不生效（Docker）？**
+`compose.yaml` 里的 `CONFIG_*` 每次启动都会覆盖 `config/config.json`。用面板改配置时，请不要在 compose 里设置同名项。
+
+**能和旧的 V4-china 实例并存吗？**
+可以，但**必须改名字**。`compose.yaml` 里已经用 `image: microsoft-rewards-script:v5-china` 和
+`container_name: microsoft-rewards-script-v5`，不要改回 `microsoft-rewards-script:china` /
+`microsoft-rewards-script`——否则会覆盖你现有实例的镜像标签，或在启动时报容器名冲突。
+两套实例的 `config/`、`sessions/` 也必须放在不同目录。
+
+**能直接套用中文版 v4 的 `config.json` 吗？**
+不能。v5 有 `rewardsMode`、`taskDelay` 等新键，且 `experimental.apiSearch` / `apiSearchOnBing` 已被上游标记为废弃
+（搜索传输方式改由 `rewardsMode` 决定），旧配置会被校验器逐项告警并回退。
+
+---
+
+## 上游与致谢
+
+- 上游：[TheNetsky/Microsoft-Rewards-Script](https://github.com/TheNetsky/Microsoft-Rewards-Script)（GPL-3.0，作者 Netsky）
+- 国内本地化思路与 gmya.net 接口契约参考：[chiihero/Microsoft-Rewards-Script](https://github.com/chiihero/Microsoft-Rewards-Script) `V4-china`
+- 旧版接口 `_U` cookie 问题的现象与验证方法参考：[zPan2327/Microsoft-Rewards-Script-Ch](https://github.com/zPan2327/Microsoft-Rewards-Script-Ch) 的 `PATCHES.md`
+
+本项目仅做架构对齐与国内适配，未改变上游的任务执行逻辑。
+
+## 免责声明
+
+使用自动化脚本操作 Microsoft Rewards **可能导致账号被限制或封禁**。本项目仅供学习与自动化技术研究，
+作者不对任何账号处罚承担责任。使用前请自行评估风险，并遵守 Microsoft 服务条款。

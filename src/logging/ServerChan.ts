@@ -1,37 +1,37 @@
-import { httpRequest } from '../util/Http'
-import type { HttpRequestConfig } from '../util/Http'
-import PQueue from 'p-queue'
-import type { WebhookServerChanConfig } from '../interface/Config'
-import { flushQueue } from './Queue'
+import type { HttpRequestConfig } from '../network/HttpClient'
+import type { WebhookServerChanConfig } from '../config/Config'
+import type { LogLevel } from './Logger'
+import { createNotificationQueue, enqueueNotification, flushQueue } from './Queue'
 
-const serverChanQueue = new PQueue({
-    interval: 1000,
-    intervalCap: 2,
-    carryoverConcurrencyCount: true
-})
+const serverChanQueue = createNotificationQueue()
 
-export async function sendServerChan(config: WebhookServerChanConfig, content: string): Promise<void> {
-    if (!config?.sendKey) return
+const DEFAULT_TITLE = '微软奖励脚本'
+
+/**
+ * ServerChan Turbo (`sctapi.ft07.com`) push channel for WeChat.
+ *
+ * `sendKey` is the `SCT...t` key copied from the ServerChan Turbo console.
+ */
+export async function sendServerChan(config: WebhookServerChanConfig, content: string, level: LogLevel): Promise<void> {
+    const sendKey = config?.sendKey?.trim()
+    if (!sendKey) return
+
+    const title = (config.title || DEFAULT_TITLE).slice(0, 32)
+    const body = content.length > 30000 ? `${content.slice(0, 30000)}\n...(truncated)` : content
 
     const request: HttpRequestConfig = {
         method: 'POST',
-        url: `https://sctapi.ft07.com/${config.sendKey}.send`,
+        url: `https://sctapi.ft07.com/${sendKey}.send`,
         headers: { 'Content-Type': 'application/json' },
         data: {
-            title: config.title ?? 'Microsoft-Rewards-Script',
-            desp: content
+            title,
+            desp: body,
+            tags: level === 'error' ? '错误' : level === 'warn' ? '警告' : ''
         },
         timeout: 10000
     }
 
-    await serverChanQueue.add(async () => {
-        try {
-            await httpRequest(request)
-        } catch (err) {
-            const status = (err as { response?: { status?: number } })?.response?.status
-            if (status === 429) return
-        }
-    })
+    await enqueueNotification(serverChanQueue, 'ServerChan', content, level, request)
 }
 
 export function flushServerChanQueue(timeoutMs = 5000): Promise<void> {

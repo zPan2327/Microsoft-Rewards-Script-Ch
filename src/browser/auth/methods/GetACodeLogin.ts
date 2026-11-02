@@ -1,71 +1,53 @@
+import { ghostClick } from '../../GhostClick'
+import { browserTimeout } from '../../BrowserTiming'
 import type { Page } from 'patchright'
-import type { MicrosoftRewardsBot } from '../../../index'
-import { canPromptForInput, getErrorMessage, getSubtitleMessage, promptInput } from './LoginUtils'
+import type { LoginContext } from '../LoginContext'
+import { canPromptForInput, getErrorMessage, getSubtitleMessage, promptInput, waitForInputResponse } from './LoginUtils'
 
 export class CodeLogin {
-    private readonly textInputSelector = '[data-testid="codeInputWrapper"]'
-    private readonly secondairyInputSelector = 'input[id="otc-confirmation-input"], input[name="otc"]'
-    private readonly emailVerificationInputSelectors = [
-        'input#proof-confirmation-email-input',
-        '[data-testid="proof-confirmation"]'
-    ] as const
+    private readonly codeInputSelector =
+        '[data-testid="codeInputWrapper"] input, input[data-testid="codeInputWrapper"], input#otc-confirmation-input, input[name="otc"]'
+    private readonly emailInputSelector =
+        'input#proof-confirmation-email-input, input[data-testid="proof-confirmation"], [data-testid="proof-confirmation"] input'
     private readonly maxManualSeconds = 60
     private readonly maxManualAttempts = 5
 
-    constructor(private bot: MicrosoftRewardsBot) {}
+    constructor(private bot: LoginContext) {}
 
     private async findEmailVerificationInput(page: Page) {
-        for (const selector of this.emailVerificationInputSelectors) {
-            const input = await page.waitForSelector(selector, { state: 'visible', timeout: 500 }).catch(() => null)
-
-            if (input) return { input, selector }
-        }
-
-        return null
+        await page
+            .locator(`:is(${this.emailInputSelector}, ${this.codeInputSelector}):visible`)
+            .first()
+            .waitFor({ state: 'visible', timeout: browserTimeout(this.bot) })
+        const input = page.locator(`:is(${this.emailInputSelector}):visible`).first()
+        return (await input.isVisible()) ? input : null
     }
 
     private async fillCode(page: Page, code: string): Promise<boolean> {
         try {
-            const visibleInput = await page
-                .waitForSelector(this.textInputSelector, { state: 'visible', timeout: 500 })
-                .catch(() => null)
-
-            if (visibleInput) {
-                await page.keyboard.type(code, { delay: 50 })
-                const stilOnPage = await page
-                    .waitForSelector(this.textInputSelector, { state: 'visible', timeout: 750 })
-                    .then(() => true)
-                    .catch(() => false)
-                if (stilOnPage) {
-                    await page.keyboard.press('Enter')
-                }
-                this.bot.logger.info(this.bot.isMobile, 'LOGIN-CODE', '已填写代码输入')
-                return true
+            this.bot.signal.throwIfAborted()
+            const timeout = browserTimeout(this.bot)
+            const inputs = page.locator(`:is(${this.codeInputSelector}):visible`)
+            await inputs.first().waitFor({ state: 'visible', timeout })
+            await ghostClick(page, inputs.first(), timeout, this.bot.signal)
+            const count = await inputs.count()
+            if (count > 1) {
+                if (count !== code.length) throw new Error(`Unexpected verification code field count: ${count}`)
+                for (let index = 0; index < count; index++) await inputs.nth(index).fill('', { timeout })
+                for (let index = 0; index < count; index++) await inputs.nth(index).fill(code[index]!, { timeout })
+            } else {
+                const input = inputs.first()
+                await input.fill(code, { timeout })
+                if (await input.isVisible()) await input.press('Enter', { timeout })
             }
-
-            const secondairyInput = await page.$(this.secondairyInputSelector)
-            if (secondairyInput) {
-                await page.keyboard.type(code, { delay: 50 })
-
-                const stilOnPage = await page
-                    .waitForSelector(this.secondairyInputSelector, { state: 'visible', timeout: 750 })
-                    .then(() => true)
-                    .catch(() => false)
-                if (stilOnPage) {
-                    await page.keyboard.press('Enter')
-                }
-
-                this.bot.logger.info(this.bot.isMobile, 'LOGIN-CODE', '已填写代码输入')
-                return true
-            }
-
-            this.bot.logger.warn(this.bot.isMobile, 'LOGIN-CODE', '未找到代码输入字段')
-            return false
+            this.bot.logger.debug(this.bot.isMobile, 'LOGIN-CODE', 'Verification code submitted; waiting for response')
+            return true
         } catch (error) {
+            this.bot.signal.throwIfAborted()
             this.bot.logger.warn(
                 this.bot.isMobile,
                 'LOGIN-CODE',
-                `填写代码输入失败: ${error instanceof Error ? error.message : String(error)}`
+                `Failed to fill code input: ${error instanceof Error ? error.message : String(error)}`
             )
             return false
         }
@@ -73,23 +55,21 @@ export class CodeLogin {
 
     private async fillEmail(page: Page, email: string): Promise<boolean> {
         try {
-            const visibleInput = await this.findEmailVerificationInput(page)
-
-            if (visibleInput) {
-                await visibleInput.input.click().catch(() => {})
-                await page.keyboard.type(email, { delay: 50 })
-                await page.keyboard.press('Enter')
-                this.bot.logger.info(this.bot.isMobile, 'LOGIN-CODE', '已提交验证邮箱')
-                return true
-            }
-
-            this.bot.logger.warn(this.bot.isMobile, 'LOGIN-CODE', '未找到邮箱验证输入')
-            return false
+            this.bot.signal.throwIfAborted()
+            const input = await this.findEmailVerificationInput(page)
+            if (!input) throw new Error('Email verification input not found')
+            const timeout = browserTimeout(this.bot)
+            await ghostClick(page, input, timeout, this.bot.signal)
+            await input.fill(email, { timeout })
+            await input.press('Enter', { timeout })
+            this.bot.logger.debug(this.bot.isMobile, 'LOGIN-CODE', 'Verification email submitted; waiting for response')
+            return true
         } catch (error) {
+            this.bot.signal.throwIfAborted()
             this.bot.logger.warn(
                 this.bot.isMobile,
                 'LOGIN-CODE',
-                `填写邮箱输入失败: ${error instanceof Error ? error.message : String(error)}`
+                `Failed to fill email input: ${error instanceof Error ? error.message : String(error)}`
             )
             return false
         }
@@ -97,7 +77,7 @@ export class CodeLogin {
 
     async handle(page: Page): Promise<void> {
         try {
-            this.bot.logger.info(this.bot.isMobile, 'LOGIN-CODE', '请求代码登录身份验证')
+            this.bot.logger.debug(this.bot.isMobile, 'LOGIN-CODE', 'Code login authentication requested')
 
             if (!canPromptForInput()) {
                 throw new Error('Email-code authentication requires interactive stdin; unavailable in background mode')
@@ -105,26 +85,19 @@ export class CodeLogin {
 
             const emailMessage = await getSubtitleMessage(page)
             if (emailMessage) {
-                this.bot.logger.info(this.bot.isMobile, 'LOGIN-CODE', `页面消息: "${emailMessage}"`)
+                this.bot.logger.info(this.bot.isMobile, 'LOGIN-CODE', `Page message: "${emailMessage}"`)
             } else {
-                this.bot.logger.warn(this.bot.isMobile, 'LOGIN-CODE', '无法检索邮件代码目的地')
+                this.bot.logger.warn(this.bot.isMobile, 'LOGIN-CODE', 'Unable to retrieve email code destination')
             }
 
             const emailProofInput = await this.findEmailVerificationInput(page)
 
             if (emailProofInput) {
-                const selectorVariant =
-                    emailProofInput.selector === this.emailVerificationInputSelectors[0] ? 'new' : 'old'
-                this.bot.logger.debug(
-                    this.bot.isMobile,
-                    'LOGIN-CODE',
-                    `使用${selectorVariant}版邮箱验证输入选择器`
-                )
                 const maskedHint = emailMessage?.match(/[A-Za-z0-9._*+-]+@[A-Za-z0-9.*-]+\.[A-Za-z]{2,}/)?.[0]
                 this.bot.logger.info(
                     this.bot.isMobile,
                     'LOGIN-CODE',
-                    '检测到邮箱验证挑战，等待邮箱地址'
+                    'Email verification challenge detected, awaiting email address'
                 )
 
                 let emailVerified = false
@@ -141,7 +114,7 @@ export class CodeLogin {
                         this.bot.logger.warn(
                             this.bot.isMobile,
                             'LOGIN-CODE',
-                            `无效或缺少邮箱 (尝试 ${attempt}/${this.maxManualAttempts}) | 输入长度=${email?.length}`
+                            `Invalid or missing email (attempt ${attempt}/${this.maxManualAttempts}) | input length=${email?.length}`
                         )
 
                         if (attempt === this.maxManualAttempts) {
@@ -155,7 +128,7 @@ export class CodeLogin {
                         this.bot.logger.error(
                             this.bot.isMobile,
                             'LOGIN-CODE',
-                            `无法填写邮箱输入 (尝试 ${attempt}/${this.maxManualAttempts})`
+                            `Unable to fill email input (attempt ${attempt}/${this.maxManualAttempts})`
                         )
 
                         if (attempt === this.maxManualAttempts) {
@@ -164,31 +137,24 @@ export class CodeLogin {
                         continue
                     }
 
-                    await this.bot.utils.wait(500)
-                    await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {})
+                    await waitForInputResponse(page, this.emailInputSelector, browserTimeout(this.bot))
 
                     const emailError = await getErrorMessage(page)
                     if (emailError) {
                         this.bot.logger.warn(
                             this.bot.isMobile,
                             'LOGIN-CODE',
-                            `邮箱被拒绝: ${emailError} (尝试 ${attempt}/${this.maxManualAttempts})`
+                            `Email rejected: ${emailError} (attempt ${attempt}/${this.maxManualAttempts})`
                         )
 
                         if (attempt === this.maxManualAttempts) {
                             throw new Error(`Maximum email attempts reached: ${emailError}`)
                         }
 
-                        const inputToClear = await this.findEmailVerificationInput(page)
-                        if (inputToClear) {
-                            await inputToClear.input.click()
-                            await page.keyboard.press('Control+A')
-                            await page.keyboard.press('Backspace')
-                        }
                         continue
                     }
 
-                    this.bot.logger.info(this.bot.isMobile, 'LOGIN-CODE', '邮箱已接受，验证代码已发送')
+                    this.bot.logger.info(this.bot.isMobile, 'LOGIN-CODE', 'Email accepted, verification code sent')
                     emailVerified = true
                     break
                 }
@@ -196,8 +162,6 @@ export class CodeLogin {
                 if (!emailVerified) {
                     throw new Error('Email verification failed')
                 }
-
-                await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {})
             }
 
             for (let attempt = 1; attempt <= this.maxManualAttempts; attempt++) {
@@ -211,7 +175,7 @@ export class CodeLogin {
                     this.bot.logger.warn(
                         this.bot.isMobile,
                         'LOGIN-CODE',
-                        `无效或缺少代码 (尝试 ${attempt}/${this.maxManualAttempts}) | 输入长度=${code?.length}`
+                        `Invalid or missing code (attempt ${attempt}/${this.maxManualAttempts}) | input length=${code?.length}`
                     )
 
                     if (attempt === this.maxManualAttempts) {
@@ -225,7 +189,7 @@ export class CodeLogin {
                     this.bot.logger.error(
                         this.bot.isMobile,
                         'LOGIN-CODE',
-                        `无法填写代码输入 (尝试 ${attempt}/${this.maxManualAttempts})`
+                        `Unable to fill code input (attempt ${attempt}/${this.maxManualAttempts})`
                     )
 
                     if (attempt === this.maxManualAttempts) {
@@ -234,8 +198,7 @@ export class CodeLogin {
                     continue
                 }
 
-                await this.bot.utils.wait(500)
-                await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {})
+                await waitForInputResponse(page, this.codeInputSelector, browserTimeout(this.bot))
 
                 // Check if wrong code was entered
                 const errorMessage = await getErrorMessage(page)
@@ -243,24 +206,21 @@ export class CodeLogin {
                     this.bot.logger.warn(
                         this.bot.isMobile,
                         'LOGIN-CODE',
-                        `代码不正确: ${errorMessage} (尝试 ${attempt}/${this.maxManualAttempts})`
+                        `Incorrect code: ${errorMessage} (attempt ${attempt}/${this.maxManualAttempts})`
                     )
 
                     if (attempt === this.maxManualAttempts) {
                         throw new Error(`Maximum attempts reached: ${errorMessage}`)
                     }
 
-                    // Clear the input field before retrying
-                    const inputToClear = await page.$(this.textInputSelector).catch(() => null)
-                    if (inputToClear) {
-                        await inputToClear.click()
-                        await page.keyboard.press('Control+A')
-                        await page.keyboard.press('Backspace')
-                    }
                     continue
                 }
 
-                this.bot.logger.info(this.bot.isMobile, 'LOGIN-CODE', '代码身份验证成功完成')
+                this.bot.logger.debug(
+                    this.bot.isMobile,
+                    'LOGIN-CODE',
+                    'Code response received; checking next sign-in state'
+                )
                 return
             }
 
@@ -269,7 +229,7 @@ export class CodeLogin {
             this.bot.logger.error(
                 this.bot.isMobile,
                 'LOGIN-CODE',
-                `发生错误: ${error instanceof Error ? error.message : String(error)}`
+                `Error occurred: ${error instanceof Error ? error.message : String(error)}`
             )
             throw error
         }

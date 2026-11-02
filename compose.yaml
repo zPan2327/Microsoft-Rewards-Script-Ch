@@ -1,48 +1,76 @@
 services:
     microsoft-rewards-script:
-        # 本地构建本项目代码（V4-china 国内适配版）。
-        # ghcr.io/thenetsky/... 是原作者 TheNetsky 的官方镜像，
-        # 跑的是原版代码，不含本项目的国内适配（中国热搜 / PushPlus 等）。
-        build: .
-        image: microsoft-rewards-script:china
-        container_name: microsoft-rewards-script
+        build:
+            context: .
+            # 国内构建建议走镜像源；留空则用 npm 默认源。
+            args:
+                NPM_REGISTRY: ${NPM_REGISTRY:-}
+        image: microsoft-rewards-script:v5-china
+        container_name: microsoft-rewards-script-v5
         restart: unless-stopped
-
+        stop_grace_period: 60s
         volumes:
             - ./config:/usr/src/microsoft-rewards-script/config
+            - ./diagnostics:/usr/src/microsoft-rewards-script/diagnostics
             - ./sessions:/usr/src/microsoft-rewards-script/sessions
-            - ./clawbot:/usr/src/microsoft-rewards-script/clawbot
-
         env_file:
+            # 账户凭据从这里加载（ACCOUNT_1_EMAIL、可选 ACCOUNT_1_PASSWORD 等）
             - path: .env
-
         environment:
-            # ── Scheduler ──────────────────────────────────────
+            # ── 调度 ────────────────────────────────────────────
             TZ: 'Asia/Shanghai'
             NODE_ENV: 'production'
-            CRON_SCHEDULE: '0 7 * * *'
-            RUN_ON_START: 'true'
+            # CRON_SCHEDULE 只是初始值；通过 API 改过调度后会写入 config/schedule.json，
+            # 删除该文件即可回到这里的默认值。
+            CRON_SCHEDULE: '0 7 * * *' # 用 crontab.guru 调整
+            RUN_ON_START: 'true' # 容器启动时立刻跑一次
             SKIP_RANDOM_SLEEP: 'false'
+            #MIN_SLEEP_MINUTES: "5"
+            #MAX_SLEEP_MINUTES: "50"
+            #STUCK_PROCESS_TIMEOUT_HOURS: "8"
 
-            # ── API mode ──────────────────────────────────────
-            API_MODE: 'true'
-            API_TOKEN: '${API_TOKEN}'
-            API_ALLOW_SCHEDULE_WRITE: 'true'
-            API_ALLOW_ENV_OVERRIDES: 'false'
-            API_ALLOW_CONFIG_REVEAL: 'false'
-            API_ALLOW_CONFIG_WRITE: 'true'
+            # ── 控制 API ────────────────────────────────────────
+            # API_MODE 只负责启动控制 API，不决定任务执行方式；
+            # 两种 API_MODE 都支持 CONFIG_REWARDS_MODE=api 或 browser。
+            #API_MODE: 'true'
+            #API_TOKEN: '${API_TOKEN}'             # API 模式必填，见 env.example
+            # 写/回显能力是单独的开关，默认全部关闭。
+            #API_ALLOW_SCHEDULE_WRITE: 'true'
+            #API_ALLOW_ENV_OVERRIDES: 'true'
+            #API_ALLOW_CONFIG_REVEAL: 'true'
+            #API_ALLOW_CONFIG_WRITE: 'true'
 
-            # ── Configuration ──────────────────────────────────────
+            #  ── 行为配置覆盖 ─────────────────────────────────────
+            # 注意：这里的 CONFIG_* 每次启动都会覆盖 config/config.json 的同名项。
+            # 如果你用面板改配置并希望持久化，请不要在这里设置对应项。
+            #CONFIG_CLUSTERS: '1'
+            # 任务执行方式：api（直接走 HTTP，省内存）或 browser（真实页面点击）
+            #CONFIG_REWARDS_MODE: 'api'
+            #CONFIG_ACCOUNT_DELAY_MIN: '1min'
+            #CONFIG_ACCOUNT_DELAY_MAX: '3min'
+            # 搜索词来源：china 为中国热搜（gmya.net），local 为中文词库
+            #CONFIG_SEARCH_QUERY_ENGINES: 'china,local'
+            # 解除 gmya.net 免费档限流
+            #CONFIG_CHINA_API_APPKEY: ''
+            # 微信推送：PushPlus / Server酱（二选一或同时开）
+            #CONFIG_PUSHPLUS_ENABLED: 'true'
+            #CONFIG_PUSHPLUS_TOKEN: ''
+            #CONFIG_PUSHPLUS_TEMPLATE: 'markdown'
+            #CONFIG_SERVERCHAN_ENABLED: 'true'
+            #CONFIG_SERVERCHAN_SENDKEY: ''
+            # 忽略微软明确的 bot 警告继续运行（不建议）
+            #CONFIG_CONTINUE_ON_BOT_WARNING: 'false'
+            # 屏蔽浏览器图片/视频/音频请求，减少流量
+            #CONFIG_EXPERIMENTAL_BLOCK_MEDIA: 'false'
+            # 后台上报 Edge 浏览活动（实验性）
+            #CONFIG_EXPERIMENTAL_EDGE_BROWSING: 'false'
+            # 仅在 TLS 中间人代理证书无法信任时打开
+            #CONFIG_PROXY_IGNORE_CERTIFICATE_ERRORS: 'false'
 
-            # ── 国内特性（V4-china）──────────────────────────────────
-            # gmya.net appkey，个人配额密钥，从 .env 读取（见 env.example）
-
-            # ── 微信 ClawBot ─────────────────────────────────────
-
-        # ── API mode port mapping ─────────────────────────────
-        # API_MODE=true 时开放 Control API
-        ports:
-            - '127.0.0.1:3011:3010'
+        # ── 控制 API 端口映射 ───────────────────────────────────
+        # API_MODE=true 时打开
+        #ports:
+        #    - '127.0.0.1:3010:3010'
 
         healthcheck:
             test: ['CMD-SHELL', 'scripts/docker/healthcheck.sh']
@@ -53,11 +81,3 @@ services:
 
         security_opt:
             - no-new-privileges:true
-
-        networks:
-            - rewards
-
-networks:
-    rewards:
-        driver: bridge
-        external: true

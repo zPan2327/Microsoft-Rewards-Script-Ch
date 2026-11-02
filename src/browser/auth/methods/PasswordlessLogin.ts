@@ -1,5 +1,5 @@
 import type { Page } from 'patchright'
-import type { MicrosoftRewardsBot } from '../../../index'
+import type { LoginContext } from '../LoginContext'
 
 type ApprovalState = 'APPROVED' | 'RETRY_AVAILABLE' | 'PENDING'
 
@@ -11,7 +11,7 @@ export class PasswordlessLogin {
     private readonly shieldMarkerSelector = '[data-testid="deviceShieldCheckmarkVideo"]'
     private readonly primaryButtonSelector = 'button[data-testid="primaryButton"]'
 
-    constructor(private bot: MicrosoftRewardsBot) {}
+    constructor(private bot: LoginContext) {}
 
     private async isAttached(page: Page, selector: string): Promise<boolean> {
         return page
@@ -59,7 +59,7 @@ export class PasswordlessLogin {
                 return number?.trim() || null
             }
         } catch {
-            this.bot.logger.warn(this.bot.isMobile, 'LOGIN-PASSWORDLESS', '无法检索显示的号码')
+            this.bot.logger.warn(this.bot.isMobile, 'LOGIN-PASSWORDLESS', 'Could not retrieve displayed number')
         }
         return null
     }
@@ -68,13 +68,13 @@ export class PasswordlessLogin {
         this.bot.logger.info(
             this.bot.isMobile,
             'LOGIN-PASSWORDLESS',
-            `等待批准... (${this.approvalTimeoutSeconds}秒后超时)`
+            `Waiting for approval... (timeout after ${this.approvalTimeoutSeconds} seconds)`
         )
 
         for (let elapsed = 1; elapsed <= this.approvalTimeoutSeconds; elapsed++) {
             const state = await this.getStableApprovalState(page)
             if (state === 'APPROVED') {
-                this.bot.logger.info(this.bot.isMobile, 'LOGIN-PASSWORDLESS', '检测到批准')
+                this.bot.logger.debug(this.bot.isMobile, 'LOGIN-PASSWORDLESS', 'Approval detected')
                 return state
             }
             if (state === 'RETRY_AVAILABLE') return state
@@ -83,7 +83,7 @@ export class PasswordlessLogin {
                 this.bot.logger.debug(
                     this.bot.isMobile,
                     'LOGIN-PASSWORDLESS',
-                    `仍在等待... (已过去 ${elapsed}/${this.approvalTimeoutSeconds} 秒)`
+                    `Still waiting... (${elapsed}/${this.approvalTimeoutSeconds} seconds elapsed)`
                 )
             }
 
@@ -99,7 +99,7 @@ export class PasswordlessLogin {
         this.bot.logger.warn(
             this.bot.isMobile,
             'LOGIN-PASSWORDLESS',
-            `${this.approvalTimeoutSeconds} 秒后批准超时!`
+            `Approval timeout after ${this.approvalTimeoutSeconds} seconds!`
         )
         return 'TIMED_OUT'
     }
@@ -107,7 +107,7 @@ export class PasswordlessLogin {
     private async sendAnotherRequest(page: Page): Promise<boolean> {
         if ((await this.getApprovalState(page)) !== 'RETRY_AVAILABLE') return false
 
-        const clicked = await this.bot.browser.utils.ghostClick(page, this.primaryButtonSelector)
+        const clicked = await this.bot.browser.utils.click(page, this.primaryButtonSelector)
         if (!clicked) return false
 
         const numberElement = await page
@@ -124,34 +124,32 @@ export class PasswordlessLogin {
         const displayedNumber = await this.getDisplayedNumber(page)
 
         if (displayedNumber) {
-            this.bot.logger.info(
+            this.bot.logger.special(
                 this.bot.isMobile,
                 'LOGIN-PASSWORDLESS',
-                `请批准登录并选择数字: ${displayedNumber}`,
-                'yellowBright'
+                `Please approve login and select number: ${displayedNumber}`
             )
             return
         }
 
-        this.bot.logger.info(
+        this.bot.logger.special(
             this.bot.isMobile,
             'LOGIN-PASSWORDLESS',
-            '请在您的身份验证器应用上批准登录',
-            'yellowBright'
+            'Please approve login on your authenticator app'
         )
     }
 
     async handle(page: Page): Promise<void> {
         try {
-            this.bot.logger.info(this.bot.isMobile, 'LOGIN-PASSWORDLESS', '请求无密码身份验证')
+            this.bot.logger.debug(this.bot.isMobile, 'LOGIN-PASSWORDLESS', 'Passwordless authentication requested')
 
             for (let retry = 0; retry <= this.maxRequestRetries; retry++) {
                 await this.logApprovalNumber(page)
 
                 const state = await this.waitForApproval(page)
                 if (state === 'APPROVED') {
-                    this.bot.logger.info(this.bot.isMobile, 'LOGIN-PASSWORDLESS', '登录批准成功')
-                    await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {})
+                    this.bot.logger.debug(this.bot.isMobile, 'LOGIN-PASSWORDLESS', 'Login approved successfully')
+                    await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => undefined)
                     return
                 }
 
@@ -159,7 +157,7 @@ export class PasswordlessLogin {
                     this.bot.logger.warn(
                         this.bot.isMobile,
                         'LOGIN-PASSWORDLESS',
-                        `批准请求已过期；发送重试 ${retry + 1}/${this.maxRequestRetries}`
+                        `Approval request expired; sending retry ${retry + 1}/${this.maxRequestRetries}`
                     )
                     if (await this.sendAnotherRequest(page)) continue
                     throw new Error('Could not send another passwordless authentication request')
@@ -171,7 +169,7 @@ export class PasswordlessLogin {
             this.bot.logger.error(
                 this.bot.isMobile,
                 'LOGIN-PASSWORDLESS',
-                `发生错误: ${error instanceof Error ? error.message : String(error)}`
+                `An error occurred: ${error instanceof Error ? error.message : String(error)}`
             )
             throw error
         }
