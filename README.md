@@ -1,4 +1,4 @@
-# Microsoft Rewards Script · 中文版（v5.0.0-ch.1）
+# Microsoft Rewards Script · 中文版（v5.0.0-ch.2）
 
 [![CI](https://github.com/zPan2327/Microsoft-Rewards-Script-Ch/actions/workflows/ci.yml/badge.svg?branch=v5-china)](https://github.com/zPan2327/Microsoft-Rewards-Script-Ch/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/zPan2327/Microsoft-Rewards-Script-Ch?label=release&color=blue)](https://github.com/zPan2327/Microsoft-Rewards-Script-Ch/releases)
@@ -194,6 +194,23 @@ ACCOUNT_2_LANG_CODE=zh-CN
 
 其余任务级日志保持英文。如果你需要更彻底的中文化，可以在 `consoleLogFilter` / `webhookLogFilter`
 里按需筛选，或直接改 `Logger` 调用点——但请注意这会让后续同步上游产生冲突。
+
+---
+
+## 配套仪表盘（推荐）
+
+脚本侧保持英文原文，是刻意的设计：`lib/parser.js` 与各处日志解析都按英文正则匹配，
+在**展示层**翻译才不会破坏解析。因此任务级日志的中文化由配套仪表盘完成：
+
+> **[zPan2327/rewards-dashboard-i18n](https://github.com/zPan2327/rewards-dashboard-i18n)** —
+> 本仓库的**官方配套仪表盘**（简体中文 / i18n 版）
+>
+> 日志正文与标题在界面上实时中文化（短语 + 字段名 + 枚举值字典，实机日志严格口径覆盖 94%），
+> 双语可切换：English 模式不出中文、简体中文模式不出英文。
+> 数据层（`message` 字段、CSV 导出、parser）仍是英文原文，可直接复制到 issue 里排查。
+
+两个仓库**配套使用**，版本对应关系见 [docs/release-notes-v5.0.0-ch.2.md](./docs/release-notes-v5.0.0-ch.2.md)。
+仪表盘侧的改动清单见 [rewards-dashboard-i18n 的发布说明](https://github.com/zPan2327/rewards-dashboard-i18n/releases)。
 
 ---
 

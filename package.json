@@ -1,6 +1,6 @@
 {
     "name": "microsoft-rewards-script",
-    "version": "5.0.0-ch.1",
+    "version": "5.0.0-ch.2",
     "description": "Microsoft Rewards automation with browser and API modes, localized for zh-CN (China hot-search queries, WeChat push).",
     "author": "Netsky",
     "license": "GPL-3.0-or-later",

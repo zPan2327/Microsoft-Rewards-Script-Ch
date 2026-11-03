@@ -2,19 +2,41 @@
 
 本项目遵循「上游版本 + 中文本地化序号」的版本号规则，例如 `5.0.0-ch.1` 表示基于上游 `5.0.0` 的第一个中文版。
 
+配套仪表盘：**[zPan2327/rewards-dashboard-i18n](https://github.com/zPan2327/rewards-dashboard-i18n)** —
+任务级日志的中文化在仪表盘展示层完成（本仓库保持日志原文，以免破坏解析）。
+
 ## [未发布]
+
+## [5.0.0-ch.2] - 2026-11-03
+
+主题：**工程化与可验证性**。不改变运行时行为，补齐测试、CI、发布流水线与配套说明。
 
 ### 新增
 
 - **中国热搜源单元测试**（`test/china-source.test.cjs`，7 项）：URL 构造、appkey 裁剪、跨源去重、
   403 限流回落备用源、全源失败、响应结构异常、标题清洗与来源标记。
-- `npm test` / `npm run test:china` 脚本，CI 在 build 之后自动执行。
+  `npm test` / `npm run test:china`，CI 在构建后自动执行。
+- **CI 流水线**（`.github/workflows/ci.yml`）：lint + 单元测试。
+- **GHCR 镜像发布工作流**（`.github/workflows/docker-publish.yml`）：打 tag / 发 Release 即自动构建推送
+  `ghcr.io/zpan2327/microsoft-rewards-script-v5`，同时产出带 `v` / 不带 `v` 的版本标签、`latest` 与 `v5-china`。
+- **配套仪表盘说明**：README 新增「配套仪表盘」章节，与
+  [rewards-dashboard-i18n](https://github.com/zPan2327/rewards-dashboard-i18n) 互相链接。
+- **发布说明**：`docs/release-notes-v5.0.0-ch.2.md`。
 
-### 修复
+### 构建
 
 - Chromium 下载源改为可选参数 `ARG PLAYWRIGHT_DOWNLOAD_HOST`（默认走官方 CDN）。
   原先硬编码 npmmirror 会 404：该镜像只同步到 chromium revision 1200，而 patchright 1.64.2 需要 1248。
+  国内构建可显式传 `PLAYWRIGHT_DOWNLOAD_HOST`，仅在镜像站已同步对应 revision 时使用。
 - 镜像包名改为 `microsoft-rewards-script-v5`：旧包由已删除的旧仓库创建，新仓库的 `GITHUB_TOKEN` 对同名包无写权限。
+
+### 安全
+
+- 所有示例配置（`env.example` / `config.example.json`）均为占位符，仓库内不含任何账号、
+  密码、TOTP 密钥、API token 或推送密钥；`.env` 已在 `.gitignore` 中。
+
+> 说明：`v5.0.0-ch.1` 标签在上述部分工程化提交之后才打下，因此这几项构建改动已包含在 `5.0.0-ch.1`
+> 镜像里；本次把它们连同单元测试与配套文档一并归档为 `5.0.0-ch.2`。
 
 ## [5.0.0-ch.1] - 2026-11-02
 
