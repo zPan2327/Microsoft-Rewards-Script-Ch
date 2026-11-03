@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/zPan2327/Microsoft-Rewards-Script-Ch/actions/workflows/ci.yml/badge.svg?branch=v5-china)](https://github.com/zPan2327/Microsoft-Rewards-Script-Ch/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/zPan2327/Microsoft-Rewards-Script-Ch?label=release&color=blue)](https://github.com/zPan2327/Microsoft-Rewards-Script-Ch/releases)
-[![Container](https://img.shields.io/badge/ghcr.io-microsoft--rewards--script-2496ED?logo=docker&logoColor=white)](https://github.com/zPan2327/Microsoft-Rewards-Script-Ch/pkgs/container/microsoft-rewards-script)
+[![Container](https://img.shields.io/badge/ghcr.io-microsoft--rewards--script--v5-2496ED?logo=docker&logoColor=white)](https://github.com/zPan2327/Microsoft-Rewards-Script-Ch/pkgs/container/microsoft-rewards-script-v5)
 ![Node](https://img.shields.io/badge/node-%3E%3D24-green)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 
@@ -65,7 +65,7 @@ docker compose logs -f
 不想自己构建的话，可以直接用已发布的镜像（由 GitHub Actions 在每次发版时构建）：
 
 ```bash
-docker pull ghcr.io/zpan2327/microsoft-rewards-script:5.0.0-ch.1
+docker pull ghcr.io/zpan2327/microsoft-rewards-script-v5:5.0.0-ch.1
 ```
 
 把 `compose.yaml` 里的 `build:` 段换成镜像即可：
@@ -73,7 +73,7 @@ docker pull ghcr.io/zpan2327/microsoft-rewards-script:5.0.0-ch.1
 ```yaml
 services:
     microsoft-rewards-script:
-        image: ghcr.io/zpan2327/microsoft-rewards-script:5.0.0-ch.1
+        image: ghcr.io/zpan2327/microsoft-rewards-script-v5:5.0.0-ch.1
         # 其余保持不变
 ```
 

@@ -21,7 +21,9 @@ concurrency:
 
 env:
     # GHCR 要求全小写；仓库名里含大写字母，所以这里显式写死。
-    IMAGE_NAME: ghcr.io/zpan2327/microsoft-rewards-script
+    # 需要独立包名：旧的 microsoft-rewards-script 包由已删除的旧仓库创建，
+    # 新仓库的 GITHUB_TOKEN 对同名包没有写权限（push 会被拒），故换新名字。
+    IMAGE_NAME: ghcr.io/zpan2327/microsoft-rewards-script-v5
 
 jobs:
     publish:
