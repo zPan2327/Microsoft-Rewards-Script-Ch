@@ -1,0 +1,68 @@
+name: 问题反馈
+description: 报告 bug 或运行异常（请先看 README 的「常见问题」）
+labels: ['bug']
+body:
+    - type: markdown
+      attributes:
+          value: |
+              感谢反馈。请尽量把下面的信息填全，尤其是**日志**和**配置片段**，
+              否则很难定位问题（本项目需要在真实账号环境下才能复现大部分行为）。
+
+    - type: dropdown
+      id: branch
+      attributes:
+          label: 使用哪个分支
+          options:
+              - v5-china（上游 v5.0.0 中文本地化）
+              - V4-china（旧版，上游 v4 本地化）
+      validations:
+          required: true
+
+    - type: input
+      id: version
+      attributes:
+          label: 版本
+          description: 见 package.json 的 version，或镜像 tag
+          placeholder: 5.0.0-ch.1
+      validations:
+          required: true
+
+    - type: dropdown
+      id: deploy
+      attributes:
+          label: 部署方式
+          options:
+              - Docker / compose
+              - Windows 本地 npm start
+              - Linux / macOS 本地
+          validations:
+              required: true
+
+    - type: textarea
+      id: what
+      attributes:
+          label: 现象
+          description: 发生了什么？期望是什么？
+          placeholder: 例如：打卡任务全部被跳过，日志出现「使用 Bing flyout 部分仪表板」
+      validations:
+          required: true
+
+    - type: textarea
+      id: logs
+      attributes:
+          label: 相关日志
+          description: 请贴出出错前后的日志（注意删除邮箱、token、cookie 等敏感信息）
+          render: shell
+
+    - type: textarea
+      id: config
+      attributes:
+          label: 相关配置
+          description: config.json 里相关的片段（删除 token / sendKey / appkey 等）
+          render: json
+
+    - type: input
+      id: env
+      attributes:
+          label: 环境
+          placeholder: Windows 11 / Node 24.21.0 / Docker 28.5.2
