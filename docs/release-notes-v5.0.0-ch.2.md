@@ -4,14 +4,14 @@
 >
 > 本版本与 **[zPan2327/rewards-dashboard-i18n](https://github.com/zPan2327/rewards-dashboard-i18n)**（配套仪表盘）**配套使用**。
 
-| | |
-| --- | --- |
-| 版本 | `5.0.0-ch.2` |
-| 发布日期 | 2026-11-03 |
-| 上游基线 | `TheNetsky/Microsoft-Rewards-Script` 分支 `v5`（`5.0.0`） |
-| 分支 | [`v5-china`](https://github.com/zPan2327/Microsoft-Rewards-Script-Ch/tree/v5-china) |
-| 许可证 | GPL-3.0-or-later |
-| 镜像 | `ghcr.io/zpan2327/microsoft-rewards-script-v5:5.0.0-ch.2` |
+|          |                                                                                     |
+| -------- | ----------------------------------------------------------------------------------- |
+| 版本     | `5.0.0-ch.2`                                                                        |
+| 发布日期 | 2026-11-03                                                                          |
+| 上游基线 | `TheNetsky/Microsoft-Rewards-Script` 分支 `v5`（`5.0.0`）                           |
+| 分支     | [`v5-china`](https://github.com/zPan2327/Microsoft-Rewards-Script-Ch/tree/v5-china) |
+| 许可证   | GPL-3.0-or-later                                                                    |
+| 镜像     | `ghcr.io/zpan2327/microsoft-rewards-script-v5:5.0.0-ch.2`                           |
 
 ---
 
@@ -24,20 +24,20 @@
 
 因此分工如下：
 
-| 仓库 | 职责 | 链接 |
-| --- | --- | --- |
+| 仓库                                      | 职责                                                         | 链接                                                                                                       |
+| ----------------------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
 | **Microsoft-Rewards-Script-Ch**（本仓库） | 中国热搜源、微信推送、中文运行摘要；**日志正文保持英文原文** | [github.com/zPan2327/Microsoft-Rewards-Script-Ch](https://github.com/zPan2327/Microsoft-Rewards-Script-Ch) |
-| **rewards-dashboard-i18n**（配套仪表盘） | 界面与**日志正文/标题的中文化**（展示层字典，不改数据） | [github.com/zPan2327/rewards-dashboard-i18n](https://github.com/zPan2327/rewards-dashboard-i18n) |
+| **rewards-dashboard-i18n**（配套仪表盘）  | 界面与**日志正文/标题的中文化**（展示层字典，不改数据）      | [github.com/zPan2327/rewards-dashboard-i18n](https://github.com/zPan2327/rewards-dashboard-i18n)           |
 
 > 想要日志显示中文？装配套仪表盘即可，脚本侧无需任何改动。
 > 详见仪表盘侧的 [日志中文化说明](https://github.com/zPan2327/rewards-dashboard-i18n/blob/main/docs/i18n.md)。
 
 ### 版本配套关系
 
-| 脚本 | 配套仪表盘 | 说明 |
-| --- | --- | --- |
+| 脚本         | 配套仪表盘      | 说明                                |
+| ------------ | --------------- | ----------------------------------- |
 | `5.0.0-ch.2` | `v2.0.1-i18n.2` | 日志标题 + 正文中文化，双语模式契约 |
-| `5.0.0-ch.1` | `v2.0.1-i18n.1` | 界面中文化（日志正文尚未翻译） |
+| `5.0.0-ch.1` | `v2.0.1-i18n.1` | 界面中文化（日志正文尚未翻译）      |
 
 ---
 
@@ -85,12 +85,12 @@ docker pull ghcr.io/zpan2327/microsoft-rewards-script-v5:5.0.0-ch.2
 
 其他可用标签：
 
-| 标签 | 用途 |
-| --- | --- |
-| `5.0.0-ch.2` | 固定版本（推荐） |
-| `v5.0.0-ch.2` | 同上，带 `v` 前缀 |
-| `latest` | 最新构建 |
-| `v5-china` | 跟随 `v5-china` 分支 |
+| 标签          | 用途                 |
+| ------------- | -------------------- |
+| `5.0.0-ch.2`  | 固定版本（推荐）     |
+| `v5.0.0-ch.2` | 同上，带 `v` 前缀    |
+| `latest`      | 最新构建             |
+| `v5-china`    | 跟随 `v5-china` 分支 |
 
 ### 从源码构建
 
@@ -125,13 +125,13 @@ docker compose up -d --build
 
 完整说明见 [README](../README.md#配置重点)，此处只列与部署相关的：
 
-| 环境变量 | 说明 |
-| --- | --- |
-| `ACCOUNT_N_EMAIL` / `_PASSWORD` / `_TOTP_SECRET` | 账号凭据；编号可跳号，全部放在 `.env` |
-| `API_MODE` / `API_TOKEN` | Control API 开关与共享密钥，**必须与仪表盘一致** |
-| `CRON_SCHEDULE` | 调度表达式，默认 `0 7 * * *`（每天 07:00） |
-| `CONFIG_CHINA_API_APPKEY` | gmya.net 个人配额密钥，可解除免费档限流（可选） |
-| `CONFIG_PUSHPLUS_*` / `CONFIG_SERVERCHAN_*` | 微信推送（可选） |
+| 环境变量                                         | 说明                                             |
+| ------------------------------------------------ | ------------------------------------------------ |
+| `ACCOUNT_N_EMAIL` / `_PASSWORD` / `_TOTP_SECRET` | 账号凭据；编号可跳号，全部放在 `.env`            |
+| `API_MODE` / `API_TOKEN`                         | Control API 开关与共享密钥，**必须与仪表盘一致** |
+| `CRON_SCHEDULE`                                  | 调度表达式，默认 `0 7 * * *`（每天 07:00）       |
+| `CONFIG_CHINA_API_APPKEY`                        | gmya.net 个人配额密钥，可解除免费档限流（可选）  |
+| `CONFIG_PUSHPLUS_*` / `CONFIG_SERVERCHAN_*`      | 微信推送（可选）                                 |
 
 > `CONFIG_*` 每次启动都会覆盖 `config/config.json` 的同名项。
 > 若想用面板改配置并持久化，请不要在 compose 里设置对应项。
