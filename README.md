@@ -226,16 +226,27 @@ Dockerfile                        # + NPM_REGISTRY 构建参数
 
 已在真实机器上验证（Linux x86_64，Node **v24.21.0**，Docker **28.5.2** / Compose v2.40.3）：
 
-- ✅ `npm ci` + `npm run build` + `npm run check:api` + `npm run lint` + `npm run format:check` 全部通过
+- ✅ `npm ci` + `npm run build` + `npm run check:api` + `npm run lint` + `npm run format:check` + `npm test` 全部通过
 - ✅ `docker build` 成功：Node 24 builder 内编译、`NPM_REGISTRY` 生效、Chromium headless shell（120 MiB）下载并打包
 - ✅ `docker compose config` 校验通过（含 `env_file` 长语法与 `NPM_REGISTRY` 构建参数）
 - ✅ 容器内 `validateConfig(config.example.json)`：`china` / `chinaApi` / `pushplus` / `serverchan` 均保留，0 条 warning
 - ✅ 容器内走真实网络调用 `getChinaHotTopics()`：**50 条热搜、682 ms**
 - ✅ 容器内由 entrypoint 生成 `config/config.json`：确认新字段全部落盘（`queryEngines: ["china","local"]`、`chinaApi`、`pushplus`、`serverchan`）
 - ✅ Control API `/health` 返回 `{"ok":true,"version":"5.0.0-ch.1",...}`
-- ✅ `getChinaHotTopics()` 桩测试：聚合去重、403 后走备用源、全源失败返回空数组且不抛异常
+- ✅ `getChinaHotTopics()` 单元测试 7 项全通过（`npm test`，< 200 ms）
 
 **未做**：真实账号登录与任务执行（需要可用的微软账号）。首次运行请先盯一遍日志。
+
+### 单元测试
+
+```bash
+npm run build   # 测试针对 dist/ 运行，必须先编译
+npm test        # 或 npm run test:china
+```
+
+`test/china-source.test.cjs` 覆盖中国热搜源的关键行为：URL 构造（有无 appkey）、appkey 裁剪、
+跨源去重、403 限流后回落备用源、全部源失败返回空数组不抛异常、响应结构异常时按空处理、
+标题清洗与来源标记。CI 会在 `build` 之后自动执行。
 
 测试过程中发现并已修正的一个部署风险：上游 compose 使用 `image: microsoft-rewards-script:china` 与
 `container_name: microsoft-rewards-script`，如果本机已在跑 V4-china，`docker compose up` 会覆盖它的镜像标签。

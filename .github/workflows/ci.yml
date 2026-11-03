@@ -42,6 +42,9 @@ jobs:
             - name: Format check
               run: npm run format:check
 
+            - name: Unit tests (China query source)
+              run: npm test
+
     config-check:
         name: Config schema check
         runs-on: ubuntu-latest

@@ -2,6 +2,20 @@
 
 本项目遵循「上游版本 + 中文本地化序号」的版本号规则，例如 `5.0.0-ch.1` 表示基于上游 `5.0.0` 的第一个中文版。
 
+## [未发布]
+
+### 新增
+
+- **中国热搜源单元测试**（`test/china-source.test.cjs`，7 项）：URL 构造、appkey 裁剪、跨源去重、
+  403 限流回落备用源、全源失败、响应结构异常、标题清洗与来源标记。
+- `npm test` / `npm run test:china` 脚本，CI 在 build 之后自动执行。
+
+### 修复
+
+- Chromium 下载源改为可选参数 `ARG PLAYWRIGHT_DOWNLOAD_HOST`（默认走官方 CDN）。
+  原先硬编码 npmmirror 会 404：该镜像只同步到 chromium revision 1200，而 patchright 1.64.2 需要 1248。
+- 镜像包名改为 `microsoft-rewards-script-v5`：旧包由已删除的旧仓库创建，新仓库的 `GITHUB_TOKEN` 对同名包无写权限。
+
 ## [5.0.0-ch.1] - 2026-11-02
 
 首个面向上游 **v5.0.0**（commit `eac1718`，2026-10-31）的中文本地化版本，新建 `v5-china` 分支与既有 `V4-china` 并行维护。

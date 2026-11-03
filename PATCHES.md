@@ -181,3 +181,19 @@ docker compose config -q
 上游 `compose.yaml` 使用 `image: microsoft-rewards-script:china` 与 `container_name: microsoft-rewards-script`。
 如果宿主机已在运行 V4-china 实例，直接 `docker compose up` 会覆盖其镜像标签、并在容器名上冲突。
 本仓库已改为 `image: microsoft-rewards-script:v5-china` / `container_name: microsoft-rewards-script-v5`。
+
+---
+
+## 10. 新增：中国热搜源单元测试
+
+**文件**：`test/china-source.test.cjs`（新）、`package.json`、`.github/workflows/ci.yml`、`eslint.config.mjs`
+
+- 使用 Node 内置 `node --test`，不引入新依赖；直接针对编译产物 `dist/` 运行，因此需先 `npm run build`。
+- 用桩 `bot`（`config` / `userData` / `accountLocale` / `logger` / `http.request`）驱动 `QuerySources.getChinaHotTopics()`，
+  HTTP 层返回预置 payload，无需真实网络。
+- 7 项覆盖：无 appkey 只请 1 源且 URL 无查询串、有 appkey 请 2 源且带 `format=json&appkey`、appkey 裁剪、
+  403 限流回落备用源、全源失败返回 `[]` 且只告警、`data` 非数组时按空处理、标题去空格/丢空/来源与 `kind` 标记。
+- `package.json` 新增 `test` / `test:china` 脚本；CI 在 `format:check` 之后执行 `npm test`。
+- `eslint.config.mjs` 把 `test/**/*.cjs` 加入 `no-require-imports` 豁免（CJS 测试文件必然用 `require`）。
+
+**同步后自检**：`npm run build && npm test` 应输出 `# pass 7`。
