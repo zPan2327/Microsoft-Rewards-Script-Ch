@@ -1,0 +1,83 @@
+name: CI
+
+on:
+    push:
+        branches: [v5-china]
+    pull_request:
+        branches: [v5-china]
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ci-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    build:
+        name: Build & check
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: '24'
+                  cache: npm
+
+            - name: Install dependencies
+              run: npm ci --include=dev --ignore-scripts
+
+            - name: Type check & build
+              run: npm run build
+
+            - name: Control API type check
+              run: npm run check:api
+
+            - name: Lint
+              run: npm run lint
+
+            - name: Format check
+              run: npm run format:check
+
+    config-check:
+        name: Config schema check
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: '24'
+                  cache: npm
+
+            - name: Install dependencies
+              run: npm ci --include=dev --ignore-scripts
+
+            - name: Build
+              run: npm run build
+
+            # 中文版新增字段（china / chinaApi / pushplus / serverchan）必须能在
+            # config.example.json 中通过校验，且不能被 zod 静默剥离。
+            - name: Validate example config keeps China fields
+              run: |
+                  node -e "
+                  const fs = require('fs');
+                  const { validateConfig } = require('./dist/config/Validator.js');
+                  const cfg = JSON.parse(fs.readFileSync('config.example.json', 'utf8'));
+                  const warnings = [];
+                  const out = validateConfig(cfg, { onWarning: m => warnings.push(m) });
+                  const ok = {
+                    engines: JSON.stringify(out.searchSettings.queryEngines),
+                    chinaApi: out.searchSettings.chinaApi !== undefined,
+                    pushplus: out.webhook.pushplus !== undefined,
+                    serverchan: out.webhook.serverchan !== undefined
+                  };
+                  console.log(ok);
+                  if (warnings.length) { console.error(warnings.join('\n')); process.exit(1); }
+                  if (!ok.chinaApi || !ok.pushplus || !ok.serverchan) { console.error('China config fields were stripped'); process.exit(1); }
+                  if (!ok.engines.includes('china')) { console.error('china engine missing'); process.exit(1); }
+                  "
