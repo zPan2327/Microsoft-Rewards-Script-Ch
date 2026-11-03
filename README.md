@@ -11,6 +11,7 @@
 把国内用户最需要的三项能力移植进来，并合入了下游排查出的真实缺陷修复。
 
 - 上游基线：`TheNetsky/Microsoft-Rewards-Script` 分支 `v5`，commit `eac1718`，版本 5.0.0（2026-10-31）
+- 灵感来源：[chiihero/Microsoft-Rewards-Script](https://github.com/chiihero/Microsoft-Rewards-Script)（国内本地化思路与接口契约参考）
 - 本版版本：`5.0.0-ch.1`（变更记录见 [CHANGELOG.md](CHANGELOG.md)）
 - 许可：GPL-3.0-or-later（与原项目一致，分发修改版需同样开源）
 
@@ -39,7 +40,7 @@
 
 **没有移植**的两项（因为上游 v5 已自行修好，移植会制造冲突）：
 
-- 补丁版（zPan2327）的「配置写入不落盘」：v5 的 `scripts/lib/projectFiles.cjs` 中 `writeJsonAtomic` 已经先做 `fs.realpathSync`，软链接场景天然正确。
+- 早期在 v4 分支上的「配置写入不落盘」修复：v5 的 `scripts/lib/projectFiles.cjs` 中 `writeJsonAtomic` 已经先做 `fs.realpathSync`，软链接场景天然正确。
 - 补丁版的「flyout 兜底永久降级」：v5 已把 `getDashboardData()` 重写为 `userinfo → flyout` 的线性尝试，每次尝试都有独立 deadline，不存在"一次失败污染整轮"的开关。
 
 ---
@@ -273,9 +274,10 @@ Dockerfile                        # + NPM_REGISTRY 构建参数
 
 ## 上游与致谢
 
-- 上游：[TheNetsky/Microsoft-Rewards-Script](https://github.com/TheNetsky/Microsoft-Rewards-Script)（GPL-3.0，作者 Netsky）
-- 国内本地化思路与 gmya.net 接口契约参考：[chiihero/Microsoft-Rewards-Script](https://github.com/chiihero/Microsoft-Rewards-Script) `V4-china`
-- 旧版接口 `_U` cookie 问题的现象与验证方法参考：[zPan2327/Microsoft-Rewards-Script-Ch](https://github.com/zPan2327/Microsoft-Rewards-Script-Ch) 的 `PATCHES.md`
+- **上游项目**：[TheNetsky/Microsoft-Rewards-Script](https://github.com/TheNetsky/Microsoft-Rewards-Script)
+  （GPL-3.0，作者 Netsky）—— 本项目直接基于其 `v5` 分支 / 5.0.0。
+- **灵感来源**：[chiihero/Microsoft-Rewards-Script](https://github.com/chiihero/Microsoft-Rewards-Script)
+  —— 国内本地化思路、gmya.net 热搜接口契约、PushPlus / Server酱 渠道设计参考。
 
 本项目仅做架构对齐与国内适配，未改变上游的任务执行逻辑。
 

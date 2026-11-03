@@ -88,7 +88,7 @@ grep -n "flushPushPlusQueue" src/logging/Notifications.ts
 ## 5. 修复：旧版 `getuserinfo` 被 `_U` cookie 打成 302
 
 **文件**：`src/rewards/shared/data/AccountData.ts`
-**来源**：zPan2327 补丁 1 的现象与验证方法（其 `PATCHES.md` 记录了 8/8 会话复现与二分定位）
+**来源**：早期 v4 分支上的实测定位（8/8 会话复现、二分到单个 `_U` cookie）
 
 - 现象：日志出现 `User data source unavailable | via=node-http | path=/api/getuserinfo`，随后走 flyout 兜底，
   而 flyout 映射出的 `punchCards` / `morePromotionsWithoutPromotionalItems` 为空 → 打卡与促销任务被整段跳过。
