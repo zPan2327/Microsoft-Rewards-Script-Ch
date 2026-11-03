@@ -56,9 +56,12 @@ jobs:
               uses: docker/metadata-action@v5
               with:
                   images: ${{ env.IMAGE_NAME }}
+                  # 同时产出带 v 与不带 v 的版本标签，外加 latest 与分支标签，
+                  # 这样 README 里的 docker pull ...:5.0.0-ch.1 也能直接命中。
                   tags: |
                       type=raw,value=${{ steps.version.outputs.value }}
-                      type=raw,value=latest,enable=${{ !contains(steps.version.outputs.value, '-') }}
+                      type=semver,pattern={{version}},value=${{ steps.version.outputs.value }}
+                      type=raw,value=latest
                       type=raw,value=v5-china
                   labels: |
                       org.opencontainers.image.title=Microsoft Rewards Script (zh-CN)
