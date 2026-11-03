@@ -2,9 +2,13 @@ services:
     microsoft-rewards-script:
         build:
             context: .
-            # 国内构建建议走镜像源；留空则用 npm 默认源。
             args:
+                # 国内构建可走镜像源；留空则用 npm 默认源。
                 NPM_REGISTRY: ${NPM_REGISTRY:-}
+                # Chromium 下载源，留空走官方 CDN。国内镜像站可能滞后于 patchright 所需版本，
+                # 只有确认镜像里有对应 revision 时再填，例如：
+                # PLAYWRIGHT_DOWNLOAD_HOST: https://cdn.npmmirror.com/binaries/playwright
+                PLAYWRIGHT_DOWNLOAD_HOST: ${PLAYWRIGHT_DOWNLOAD_HOST:-}
         # 想直接用已发布的镜像时，注释掉上面的 build: 段，改用：
         # image: ghcr.io/zpan2327/microsoft-rewards-script:5.0.0-ch.1
         image: microsoft-rewards-script:v5-china

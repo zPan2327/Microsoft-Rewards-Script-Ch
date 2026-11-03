@@ -32,13 +32,19 @@ COPY --from=builder /usr/src/microsoft-rewards-script/dist ./dist
 COPY --from=builder /usr/src/microsoft-rewards-script/package*.json ./
 COPY --from=builder /usr/src/microsoft-rewards-script/node_modules ./node_modules
 
-# Install the lockfile's matching Chromium, headless shell and system libraries.
-# 容器内只用无头模式（FORCE_HEADLESS=1），所以只装 headless shell 即可，体积与下载时间都减半。
-# 下载源默认走 npmmirror：cdn.playwright.dev 从国内直连极慢（114MB 实测约 10 分钟）。
-# 需要官方源或私有镜像时，用 --build-arg PLAYWRIGHT_DOWNLOAD_HOST=... 覆盖。
-ARG PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.npmmirror.com/binaries/playwright
-ENV PLAYWRIGHT_DOWNLOAD_HOST=${PLAYWRIGHT_DOWNLOAD_HOST}
-RUN ./node_modules/.bin/patchright install --with-deps --only-shell chromium \
+# Install the lockfile's matching Chromium headless shell.
+# 容器内只跑无头模式（FORCE_HEADLESS=1），`--only-shell` 只装 headless shell，体积与耗时减半。
+#
+# 下载源默认走官方 CDN。国内可传 --build-arg PLAYWRIGHT_DOWNLOAD_HOST=<mirror> 加速，但要注意
+# 镜像站可能滞后：截至 2026-11，npmmirror 只同步到 chromium revision 1200，而 patchright 1.64.2
+# 需要 1248，硬编码镜像会直接 404（CI 实测）。所以这里不设默认值，只在显式传入时生效。
+ARG PLAYWRIGHT_DOWNLOAD_HOST=""
+RUN if [ -n "${PLAYWRIGHT_DOWNLOAD_HOST}" ]; then \
+        PLAYWRIGHT_DOWNLOAD_HOST="${PLAYWRIGHT_DOWNLOAD_HOST}" \
+        ./node_modules/.bin/patchright install --with-deps --only-shell chromium; \
+    else \
+        ./node_modules/.bin/patchright install --with-deps --only-shell chromium; \
+    fi \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
 # The entrypoint prepares config/config.json from built-in defaults in the persisted config volume.

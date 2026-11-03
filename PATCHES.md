@@ -136,7 +136,7 @@ grep -n "flushPushPlusQueue" src/logging/Notifications.ts
 | `config.example.json` | 国内保守档：`queryEngines: ["china","local"]`、搜索间隔 6–12 分钟、阅读间隔 6–11 分钟、串行搜索、随机滚动/点击、`globalTimeout: 50sec`、`searchResultVisitTime: 20sec`、`doVisualSearch: false`、`proxy.queryEngine: false`；新增 pushplus/serverchan 段 |
 | `env.example`         | 中文注释；账户示例固定 `GEO_LOCALE=CN` / `LANG_CODE=zh-CN`；新增 `CONFIG_CHINA_API_APPKEY`、`CONFIG_PUSHPLUS_*`、`CONFIG_SERVERCHAN_*` 说明                                                                                                              |
 | `compose.yaml`        | `TZ: Asia/Shanghai`、镜像名 `microsoft-rewards-script:v5-china`、容器名 `microsoft-rewards-script-v5`（避免与 V4-china 实例冲突）、构建参数 `NPM_REGISTRY`、国内相关开关的注释示例                                                                       |
-| `Dockerfile`          | 新增 `ARG NPM_REGISTRY`，非空时 `npm config set registry`（在 builder 阶段两次 `npm ci` 之前生效）                                                                                                                                                       |
+| `Dockerfile`          | 新增 `ARG NPM_REGISTRY`（非空时 `npm config set registry`）与 `ARG PLAYWRIGHT_DOWNLOAD_HOST`（可选，用于加速 Chromium 下载）；`patchright install` 改为 `--only-shell`，只装 headless shell                                                              |
 | `package.json`        | `version: 5.0.0-ch.1`、描述与 keywords 增加 china/zh-CN/wechat/pushplus/serverchan                                                                                                                                                                       |
 
 ---
