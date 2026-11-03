@@ -33,7 +33,12 @@ COPY --from=builder /usr/src/microsoft-rewards-script/package*.json ./
 COPY --from=builder /usr/src/microsoft-rewards-script/node_modules ./node_modules
 
 # Install the lockfile's matching Chromium, headless shell and system libraries.
-RUN ./node_modules/.bin/patchright install --with-deps chromium \
+# 容器内只用无头模式（FORCE_HEADLESS=1），所以只装 headless shell 即可，体积与下载时间都减半。
+# 下载源默认走 npmmirror：cdn.playwright.dev 从国内直连极慢（114MB 实测约 10 分钟）。
+# 需要官方源或私有镜像时，用 --build-arg PLAYWRIGHT_DOWNLOAD_HOST=... 覆盖。
+ARG PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.npmmirror.com/binaries/playwright
+ENV PLAYWRIGHT_DOWNLOAD_HOST=${PLAYWRIGHT_DOWNLOAD_HOST}
+RUN ./node_modules/.bin/patchright install --with-deps --only-shell chromium \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
 # The entrypoint prepares config/config.json from built-in defaults in the persisted config volume.
