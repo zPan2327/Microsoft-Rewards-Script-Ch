@@ -108,10 +108,10 @@
             "title": "微软奖励脚本"
         },
         "webhookLogFilter": {
-            "enabled": false,
+            "enabled": true,
             "mode": "whitelist",
             "levels": ["error"],
-            "keywords": ["starting account", "select number", "collected", "Fraud_UserWarning_BotScore_UX"],
+            "keywords": ["RUN-END", "starting account", "select number", "collected", "Fraud_UserWarning_BotScore_UX"],
             "regexPatterns": []
         }
     }

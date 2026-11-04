@@ -14,6 +14,12 @@ type LogContext = Pick<
     'config' | 'currentAccountEmail' | 'isMobile' | 'mainDesktopPage' | 'mainMobilePage' | 'userData'
 >
 
+/**
+ * 这些标题的日志在推送时只发正文，不带 `[时间] [账号] [级别] 平台 [标题]` 前缀。
+ * 运行摘要本身就是给人看的多行文本，加前缀反而碍眼。
+ */
+const PUSH_BARE_TITLES = new Set(['RUN-END-摘要'])
+
 export type Platform = boolean | 'main'
 export type LogLevel = 'info' | 'warn' | 'error' | 'debug'
 export interface IpcLog {
@@ -111,6 +117,10 @@ export class Logger {
         const webhookAllowed = this.passesFilter(config.webhook.webhookLogFilter, level, cleanMsg)
         const logColor = resolveLogColor(level, data, color)
 
+        // 摘要类日志推送时只发正文：`[时间] [MAIN] [INFO] MAIN [RUN-END-摘要]` 这种前缀
+        // 对通知没有意义，反而会把多行摘要挤得看不清。
+        const pushContent = PUSH_BARE_TITLES.has(title) ? formatted : cleanMsg
+
         const machineChannel = emitControlEvent({
             ts: now,
             user: userName,
@@ -138,9 +148,9 @@ export class Logger {
         if (!hasWebhook) return
 
         if (cluster.isPrimary) {
-            void sendNotifications(config.webhook, cleanMsg, level, logColor)
+            void sendNotifications(config.webhook, pushContent, level, logColor)
         } else {
-            process.send?.({ __ipcLog: { content: cleanMsg, level, color: logColor } })
+            process.send?.({ __ipcLog: { content: pushContent, level, color: logColor } })
         }
     }
 
