@@ -269,9 +269,9 @@ ACCOUNT_2_LANG_CODE=zh-CN
 
 界面预览（脚本 `5.0.0-ch.4` + 面板 `v2.0.1-i18n.7` 实机，深色模式 / 简体中文）：
 
-![仪表盘总览：运行状态、积分统计与账号时间轴](https://raw.githubusercontent.com/zPan2327/rewards-dashboard-i18n/main/docs/Screenshot-dash.png)
+![仪表盘总览：运行状态、积分统计与账号时间轴](./docs/images/dashboard-overview.png)
 
-![实时日志：界面中文、数据层英文，可按级别与关键词过滤](https://raw.githubusercontent.com/zPan2327/rewards-dashboard-i18n/main/docs/Screenshot-logs.png)
+![实时日志：界面中文、数据层英文，可按级别与关键词过滤](./docs/images/dashboard-logs.png)
 
 两个仓库**配套使用**。版本对应关系：脚本 `5.0.0-ch.4` ↔ 面板 `v2.0.1-i18n.7`
 （脚本改判定与口径，面板补对应中文文案）；逐版本记录见 [CHANGELOG.md](./CHANGELOG.md)。
