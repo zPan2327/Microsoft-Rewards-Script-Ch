@@ -9,7 +9,7 @@
 | 基线版本     | 5.0.0                                                                                          |
 | 基线 commit  | `eac1718084f4e2cf59e75f699fc2583715f536c2`（提交信息：`v5.0.0 It is what it is.`，2026-10-31） |
 | 基线获取方式 | `https://codeload.github.com/TheNetsky/Microsoft-Rewards-Script/tar.gz/refs/heads/v5` 快照     |
-| 本仓库版本   | 5.0.0-ch.1                                                                                     |
+| 本仓库版本   | 5.0.0-ch.4                                                                                     |
 | 许可证       | GPL-3.0-or-later（继承上游 `LICENSE`，未修改）                                                 |
 
 > 本仓库是从上游 tarball 快照初始化的**独立仓库**，没有保留上游 git 历史。

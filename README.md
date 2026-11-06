@@ -1,4 +1,4 @@
-# Microsoft Rewards Script · 中文版（v5.0.0-ch.2）
+# Microsoft Rewards Script · 中文版（v5.0.0-ch.4）
 
 [![CI](https://github.com/zPan2327/Microsoft-Rewards-Script-Ch/actions/workflows/ci.yml/badge.svg?branch=v5-china)](https://github.com/zPan2327/Microsoft-Rewards-Script-Ch/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/zPan2327/Microsoft-Rewards-Script-Ch?label=release&color=blue)](https://github.com/zPan2327/Microsoft-Rewards-Script-Ch/releases)
@@ -8,11 +8,11 @@
 
 基于 [TheNetsky/Microsoft-Rewards-Script](https://github.com/TheNetsky/Microsoft-Rewards-Script) **v5.0.0** 的国内本地化版本。
 上游 v5 是一次彻底重构（分层架构 + `api` 任务模式 + 重写 Control API），本版在**不改动其架构**的前提下，
-把国内用户最需要的三项能力移植进来，并合入了下游排查出的真实缺陷修复。
+把国内用户最需要的三项能力移植进来，并修掉 v5 在国内网络下的两处硬伤（搜索超时、配额误报，见下文）。
 
 - 上游基线：`TheNetsky/Microsoft-Rewards-Script` 分支 `v5`，commit `eac1718`，版本 5.0.0（2026-10-31）
 - 灵感来源：[chiihero/Microsoft-Rewards-Script](https://github.com/chiihero/Microsoft-Rewards-Script)（国内本地化思路与接口契约参考）
-- 本版版本：`5.0.0-ch.1`（变更记录见 [CHANGELOG.md](CHANGELOG.md)）
+- 本版版本：`5.0.0-ch.4`（变更记录见 [CHANGELOG.md](CHANGELOG.md)）
 - 许可：GPL-3.0-or-later（与原项目一致，分发修改版需同样开源）
 
 > 与上游的完整差异（逐文件）见 [PATCHES.md](PATCHES.md)；上游同步流程见 [UPSTREAM.md](UPSTREAM.md)。
@@ -21,7 +21,7 @@
 
 ## 这个版本解决了什么
 
-上游 v5 功能最全、维护最活跃，但对国内环境有两处硬伤：**查询词是英文趋势**、**通知只有 Discord/Telegram/ntfy**。
+上游 v5 功能最全、维护最活跃，但对国内环境有两处硬伤：**查询词是英文趋势**、**通知只有 Discord/Telegram/ntfy**（另有 `cn.bing.com` 重定向导致的搜索超时，见下文 ch.4 一节）。
 中文版（chiihero）功能齐但停在 v4 架构，且存在几处会导致"积分变少 / 配置存不住"的缺陷。
 本版把两者合并到 v5 上：
 
@@ -33,6 +33,8 @@
 | Server酱 微信推送      | ❌                   | ✅   | Turbo 版 `sctapi.ft07.com`                        |
 | 中文运行摘要           | ❌                   | ✅   | 每轮/每账户结束额外输出一条中文摘要，可推送       |
 | 国内推荐配置           | —                    | ✅   | `config.example.json` 为国内保守档                |
+| 国内网络可用性         | ❌ 桌面搜索必然超时  | ✅   | `cn.bing.com` 兼容，见下文 ch.4 说明              |
+| 移动搜索配额口径       | ⚠️ 无配额时误报      | ✅   | 记为「未提供（已跳过）」                          |
 | Docker 构建走国内源    | ❌                   | ✅   | 可选构建参数 `NPM_REGISTRY`                       |
 | `rewardsMode: api`     | ✅                   | ✅   | 原样保留，未改动                                  |
 | Control API（28 端点） | ✅                   | ✅   | 原样保留                                          |
@@ -42,6 +44,62 @@
 
 - 早期在 v4 分支上的「配置写入不落盘」修复：v5 的 `scripts/lib/projectFiles.cjs` 中 `writeJsonAtomic` 已经先做 `fs.realpathSync`，软链接场景天然正确。
 - 补丁版的「flyout 兜底永久降级」：v5 已把 `getDashboardData()` 重写为 `userinfo → flyout` 的线性尝试，每次尝试都有独立 deadline，不存在"一次失败污染整轮"的开关。
+
+---
+
+## v5.0.0-ch.4：修掉两个国内环境的真问题
+
+上游 v5 重构动作很大，随之带来两处只在「中国大陆网络 + 中国区账号」下才暴露的问题，ch.4 一并修掉。
+
+### 1. 桌面搜索必然超时（每天每账号损失 60 分）
+
+大陆出口访问 `www.bing.com` 会被 **302 重定向到 `cn.bing.com`**。上游把「是否已进入搜索结果页」写死成
+`url.origin === 'https://www.bing.com'`，重定向后 origin 变成 `https://cn.bing.com`，条件永远不成立，
+于是一次搜索要等满 `globalTimeout`（50 秒）才超时，再重试 5 次：
+
+```text
+warn  SEARCH-BING  Search attempt 1/5 failed; reloading Bing before retry
+      | query="伞兵对青稚说我没蛐蛐" | page.waitForURL: Timeout 45120ms exceeded.
+```
+
+| 指标         | 修复前（ch.3）                | 修复后（ch.4）             |
+| ------------ | ----------------------------- | -------------------------- |
+| 结果页判定   | `url.origin === www.bing.com` | `isBingHost(url.hostname)` |
+| 单次搜索耗时 | 45120 ms 起（等满超时）       | 约 0.5 s                   |
+| 每账号每日   | 5 次重试后判定失败，60 分全丢 | 正常计数、按次记分         |
+| 附带损耗     | 每次重试都重新 goto 首页      | 不再重复导航               |
+
+实测（容器内 `patchright` + 真实网络）：请求 `https://www.bing.com` → 落地 `https://cn.bing.com/` →
+输入查询词回车 → `submitSearch` **529 ms 通过**，`#b_results` 正常渲染，搜索计数器随记分推进。
+
+真实跑批（容器 ch.4，2026-11-06 18:12）：
+
+```text
+18:12:29 INFO  [SEARCH-BING] Searching | search=1 | query="要求新娘借婚房酒店已致歉拒绝退款"
+18:13:01 WARN  [SEARCH-RANDOM-CLICK] Skipped optional result visit | page.waitForURL: Timeout 5000ms
+18:13:01 INFO  [SEARCH-DELAY] Waiting before next search | waitMs=633319
+```
+
+第 1 次搜索**没有**出现 `Search attempt 1/5 failed`，直接进入下一次搜索。其中 `SEARCH-RANDOM-CLICK`
+是「随机点击结果」这个可选动作：结果链接在新标签页打开、主页面地址不变，所以固定等 5 秒后跳过，
+只影响 5 秒耗时，不影响记分。
+
+> **关键点：没有把网址改成 `cn.bing.com`。** 跳转目标由微软按访问者 IP 决定，写死任何一侧都会在另一种网络下失效；
+> 改的是判定条件——只要仍属 `bing.com` 家族、路径是 `/search`、查询词对得上，就算搜完。
+
+### 2. 移动搜索配额「完成状态未确认」（口径问题，不是故障）
+
+`/api/getuserinfo` 返回的 `counters` 只有 `pcSearch` / `activityAndQuiz` / `dailyPoint`，**没有 `mobileSearch`**：
+中国区账号本来就没有「移动搜索赚积分」这项活动。上游把「字段缺失」和「字段异常」都记成 `unconfirmed`，
+于是每天把整个账户标成「部分完成」。
+
+ch.4 起：`counters.mobileSearch === undefined` 记为 `skipped`（`offer-not-present`），日志显示
+`Mobile search quota | unavailable (skipped)`，不再计入未完成项；字段存在但数值异常时仍按原逻辑记 `unconfirmed`。
+
+真实跑批里这一行已从 WARN 变成 INFO：`移动端搜索配额 | 不可用（已跳过） | 获得积分：0`
+（面板 `v2.0.1-i18n.7` 渲染），账户结束时也不再把它列进「部分完成」的原因。
+
+> 两条改动的逐文件说明见 [PATCHES.md](PATCHES.md) 第 11、12 节，版本记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
@@ -65,7 +123,7 @@ docker compose logs -f
 不想自己构建的话，可以直接用已发布的镜像（由 GitHub Actions 在每次发版时构建）：
 
 ```bash
-docker pull ghcr.io/zpan2327/microsoft-rewards-script-v5:5.0.0-ch.1
+docker pull ghcr.io/zpan2327/microsoft-rewards-script-v5:5.0.0-ch.4
 ```
 
 把 `compose.yaml` 里的 `build:` 段换成镜像即可：
@@ -73,7 +131,7 @@ docker pull ghcr.io/zpan2327/microsoft-rewards-script-v5:5.0.0-ch.1
 ```yaml
 services:
     microsoft-rewards-script:
-        image: ghcr.io/zpan2327/microsoft-rewards-script-v5:5.0.0-ch.1
+        image: ghcr.io/zpan2327/microsoft-rewards-script-v5:5.0.0-ch.4
         # 其余保持不变
 ```
 
@@ -209,7 +267,14 @@ ACCOUNT_2_LANG_CODE=zh-CN
 > 双语可切换：English 模式不出中文、简体中文模式不出英文。
 > 数据层（`message` 字段、CSV 导出、parser）仍是英文原文，可直接复制到 issue 里排查。
 
-两个仓库**配套使用**，版本对应关系见 [docs/release-notes-v5.0.0-ch.2.md](./docs/release-notes-v5.0.0-ch.2.md)。
+界面预览（脚本 `5.0.0-ch.4` + 面板 `v2.0.1-i18n.7` 实机，深色模式 / 简体中文）：
+
+![仪表盘总览：运行状态、积分统计与账号时间轴](https://raw.githubusercontent.com/zPan2327/rewards-dashboard-i18n/main/docs/Screenshot-dash.png)
+
+![实时日志：界面中文、数据层英文，可按级别与关键词过滤](https://raw.githubusercontent.com/zPan2327/rewards-dashboard-i18n/main/docs/Screenshot-logs.png)
+
+两个仓库**配套使用**。版本对应关系：脚本 `5.0.0-ch.4` ↔ 面板 `v2.0.1-i18n.7`
+（脚本改判定与口径，面板补对应中文文案）；逐版本记录见 [CHANGELOG.md](./CHANGELOG.md)。
 仪表盘侧的改动清单见 [rewards-dashboard-i18n 的发布说明](https://github.com/zPan2327/rewards-dashboard-i18n/releases)。
 
 ---
@@ -249,7 +314,9 @@ Dockerfile                        # + NPM_REGISTRY 构建参数
 - ✅ 容器内 `validateConfig(config.example.json)`：`china` / `chinaApi` / `pushplus` / `serverchan` 均保留，0 条 warning
 - ✅ 容器内走真实网络调用 `getChinaHotTopics()`：**50 条热搜、682 ms**
 - ✅ 容器内由 entrypoint 生成 `config/config.json`：确认新字段全部落盘（`queryEngines: ["china","local"]`、`chinaApi`、`pushplus`、`serverchan`）
-- ✅ Control API `/health` 返回 `{"ok":true,"version":"5.0.0-ch.1",...}`
+- ✅ Control API `/health` 返回 `{"ok":true,"version":"5.0.0-ch.4",...}`
+- ✅ 容器内 `patchright` 真实网络复现 `www.bing.com` → `cn.bing.com` 跳转；修复后 `submitSearch` **529 ms 通过**（修复前 45120 ms 超时）
+- ✅ 容器内直连 `/api/getuserinfo`：确认 `counters` 无 `mobileSearch`，ch.4 记为 `unavailable (skipped)`
 - ✅ `getChinaHotTopics()` 单元测试 7 项全通过（`npm test`，< 200 ms）
 
 **未做**：真实账号登录与任务执行（需要可用的微软账号）。首次运行请先盯一遍日志。

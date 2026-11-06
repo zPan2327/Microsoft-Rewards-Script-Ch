@@ -197,3 +197,65 @@ docker compose config -q
 - `eslint.config.mjs` 把 `test/**/*.cjs` 加入 `no-require-imports` 豁免（CJS 测试文件必然用 `require`）。
 
 **同步后自检**：`npm run build && npm test` 应输出 `# pass 7`。
+
+---
+
+## 11. 修复：`cn.bing.com` 重定向导致桌面搜索必然超时
+
+**文件**：`src/constants/urls.ts`、`src/rewards/browser/search/HumanTyping.ts`、
+`src/rewards/browser/search/BingSearchPage.ts`、`src/rewards/browser/search/BrowserSearchOnBing.ts`、
+`src/rewards/browser/actions/BrowserRewardNavigator.ts`
+
+- 现象：搜索阶段第 1 次就失败并连续 5 次，日志 `page.waitForURL: Timeout 45xxx ms exceeded.`；
+  但浏览器其实已经拿到结果页、计数器也在涨——脚本「搜到了却认不出来」。
+- 根因：`submitSearch()` 的 `waitForURL` 断言写成 `url.origin === URLs.bing.origin`（即 `https://www.bing.com`）。
+  大陆出口访问 `www.bing.com` 会被 302 到 `cn.bing.com`，origin 不匹配 → 断言永不成立 → 等满 `globalTimeout`。
+  同款全等判断还散落在 `prepare()` / `recover()` / Search on Bing / `reportActivity` 上报监听里。
+- 改动：新增主机名判定，替换所有「是不是 Bing 页面」的比较：
+
+    ```ts
+    export function isBingHost(hostname: string): boolean {
+        const host = hostname.toLowerCase()
+        if (host === 'rewards.bing.com') return false
+        return host === 'bing.com' || host.endsWith('.bing.com')
+    }
+    ```
+
+    | 调用点                                  | 原判断                            | 现判断                     |
+    | --------------------------------------- | --------------------------------- | -------------------------- |
+    | `HumanTyping.submitSearch`              | `url.origin === URLs.bing.origin` | `isBingHost(url.hostname)` |
+    | `BingSearchPage.prepare` / `recover`    | 同上                              | `isBingHost(...)`          |
+    | `BrowserSearchOnBing`（当前页能否复用） | 同上                              | `isBingHost(...)`          |
+    | `BrowserRewardNavigator`（监听上报）    | 同上                              | `isBingHost(...)`          |
+
+    `BingSearchPage.open()` 仍然 `goto('https://www.bing.com')`：入口不变，跳转由微软按 IP 决定。
+
+- 实测：容器内 `patchright` 请求 `www.bing.com` → 落地 `cn.bing.com`；修复后 `submitSearch` 529 ms 通过、
+  `#b_results` 正常渲染；修复前同场景 45120 ms 超时。
+- **不要**改成写死 `cn.bing.com`：海外出口会反向跳回 `www.bing.com`，写死任一侧都会在另一种网络下失效。
+
+**同步后自检**：`grep -rln "isBingHost" src/` 应能看到 `constants/urls.ts` 与 4 个调用文件。
+
+---
+
+## 12. 修正：移动搜索配额缺失时的完成状态口径
+
+**文件**：`src/rewards/shared/search/SearchManager.ts`
+
+- 现象：每轮都出现 `Mobile search quota | completion not confirmed | quota unavailable`，
+  账户因此被判定为「部分完成」。
+- 依据：`/api/getuserinfo` 的 `counters` 只有 `pcSearch` / `activityAndQuiz` / `dailyPoint`，没有 `mobileSearch`。
+  中国区账号不被提供移动搜索活动，这是账号事实，不是抓取失败。原实现把「字段缺失」与「字段异常」
+  都记成 `unconfirmed`，于是每天误报。
+- 改动：
+
+    ```ts
+    const mobileNotOffered = counters.mobileSearch === undefined
+    // mobile-search-quota: notOffered ? skipped/offer-not-present : confirmed|unconfirmed
+    ```
+
+    字段存在但数值异常（`summarize()` 返回 `available: false`）时仍记 `unconfirmed`，不掩盖真实异常。
+
+- 效果：日志变为 `Mobile search quota | unavailable (skipped) | points earned: 0`，不再进入未完成项。
+
+**同步后自检**：`grep -n "mobileNotOffered" src/rewards/shared/search/SearchManager.ts`
