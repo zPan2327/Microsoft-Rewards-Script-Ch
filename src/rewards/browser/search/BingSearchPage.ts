@@ -1,7 +1,7 @@
 import type { Page } from 'patchright'
 import { browserTimeout } from '../../../browser/BrowserTiming'
 import { isBrowserPageCrashed, isBrowserPageCrashError } from '../../../browser/BrowserPageHealth'
-import { URLs } from '../../../constants/urls'
+import { URLs, isBingHost } from '../../../constants/urls'
 import { BaseActivity } from '../../shared/activities/BaseActivity'
 import { bingSearchBox, humanPreFocusPauseMs, humanType, submitSearch } from './HumanTyping'
 
@@ -70,7 +70,7 @@ export class BingSearchPage extends BaseActivity {
     private async prepare(page: Page): Promise<void> {
         await page.bringToFront()
         const current = new URL(page.url())
-        if (current.origin !== URLs.bing.origin || !['/', '/search'].includes(current.pathname)) {
+        if (!isBingHost(current.hostname) || !['/', '/search'].includes(current.pathname)) {
             await this.open(page)
         }
         await this.bot.browser.utils.dismissMessages(page)
@@ -79,7 +79,7 @@ export class BingSearchPage extends BaseActivity {
 
     private async recover(page: Page): Promise<void> {
         this.bot.signal.throwIfAborted()
-        if (new URL(page.url()).origin !== URLs.bing.origin) {
+        if (!isBingHost(new URL(page.url()).hostname)) {
             await this.open(page)
             return
         }

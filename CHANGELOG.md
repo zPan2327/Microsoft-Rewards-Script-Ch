@@ -5,6 +5,54 @@
 配套仪表盘：**[zPan2327/rewards-dashboard-i18n](https://github.com/zPan2327/rewards-dashboard-i18n)** —
 任务级日志的中文化在仪表盘展示层完成（本仓库保持日志原文，以免破坏解析）。
 
+## [5.0.0-ch.4] - 2026-11-06
+
+主题：**修复中国大陆环境下桌面搜索必然超时**。
+
+### 修复
+
+- **Bing 搜索兼容 `cn.bing.com`**（`src/constants/urls.ts`、`src/rewards/browser/search/*`、
+  `src/rewards/browser/actions/BrowserRewardNavigator.ts`）
+  中国大陆出口访问 `www.bing.com` 会被 302 重定向到 `cn.bing.com`。v5 把「是否已进入搜索结果页」
+  写成 `url.origin === URLs.bing.origin`（即 `https://www.bing.com`），重定向后 origin 变成
+  `https://cn.bing.com`，条件永不成立 —— 每次搜索都要等满 `globalTimeout`（50s）再重试 5 次：
+
+    ```
+    warn  第 1/5 次搜索失败，重试前重新加载 Bing | page.waitForURL：超时 45120ms
+    ```
+
+    代价是单账号每天白烧约 4 分钟，且 60 分桌面搜索积分全部拿不到（页面其实已经出结果、
+    计数器也已经记分，只是脚本认不出来）。
+
+    新增 `isBingHost(hostname)`：按主机名后缀匹配 `bing.com` / `*.bing.com`，并排除
+    `rewards.bing.com`（后台域，不是搜索页）。以下位置改用该判断：
+    `HumanTyping.submitSearch`（等待结果页）、`BingSearchPage.prepare/recover`（避免每次重试都
+    重新 goto 首页）、`BrowserSearchOnBing`（判断当前页是否为可用搜索页）、
+    `BrowserRewardNavigator`（监听 `reportActivity` 上报，否则 `cn.bing.com` 上的上报会被漏掉，
+    导致「完成状态未确认」）。
+
+- **移动搜索配额缺失时不再误报未完成**（`src/rewards/shared/search/SearchManager.ts`）
+  `Mobile search quota | completion not confirmed | quota unavailable` 的根因是账号数据里
+  根本没有该计数：`/api/getuserinfo` 返回的 `counters` 只有 `pcSearch` / `activityAndQuiz` /
+  `dailyPoint`，没有 `mobileSearch`。中国大陆账号不被提供移动搜索活动，这是账号事实而不是抓取失败。
+  原实现把「字段缺失」与「字段异常」都记成 `unconfirmed`，于是每天把账户标记成「部分完成」。
+
+    现在 `counters.mobileSearch === undefined` 记为 `skipped`（reason `offer-not-present`），
+    日志显示为 `unavailable (skipped)`，不再计入未完成项；字段存在但数值异常时仍按原逻辑
+    记为 `unconfirmed`。
+
+### 测试
+
+- `npm run build`、`npm run check:api`、`npm run lint`、`npm run format:check` 全部通过，
+  `npm test` 13 项通过。
+- 实机验证：容器内用 `patchright` 复现 `www.bing.com` → `cn.bing.com` 跳转，搜索结果页
+  `#b_results` 正常渲染；修复后 `waitForURL` 立即命中，不再 5 连超时。
+
+### 升级
+
+- 镜像：`ghcr.io/zpan2327/microsoft-rewards-script-v5:5.0.0-ch.4`
+- 配套仪表盘同步升级到 `v2.0.1-i18n.7`（新增「未提供移动搜索活动」原因的中文文案）。
+
 ## [5.0.0-ch.3] - 2026-11-04
 
 主题：**完成推送改为单条聚合摘要**。

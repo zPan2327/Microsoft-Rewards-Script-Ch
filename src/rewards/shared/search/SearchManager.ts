@@ -37,18 +37,23 @@ export class SearchManager {
             desktopQuota.available &&
             (desktopMissing > 0 || this.bot.config.searchSettings.runOnZeroPoints)
 
-        for (const [name, enabled, available] of [
-            ['mobile-search-quota', this.bot.config.workers.doMobileSearch, quotas.mobile.available],
-            ['desktop-search-quota', this.bot.config.workers.doDesktopSearch, desktopQuota.available]
+        // counters.mobileSearch 缺失说明该账号没有被提供移动搜索活动（中国大陆账号普遍如此），
+        // 这是账号侧事实而非抓取失败：记为 skipped，避免每天把账户标记为“部分完成”。
+        const mobileNotOffered = counters.mobileSearch === undefined
+        for (const [name, enabled, available, notOffered] of [
+            ['mobile-search-quota', this.bot.config.workers.doMobileSearch, quotas.mobile.available, mobileNotOffered],
+            ['desktop-search-quota', this.bot.config.workers.doDesktopSearch, desktopQuota.available, false]
         ] as const) {
-            if (enabled)
-                this.bot.recordActivity(
-                    name,
-                    activityResult(
-                        available ? 'confirmed' : 'unconfirmed',
-                        available ? 'quota-available' : 'quota-unavailable'
-                    )
-                )
+            if (!enabled) continue
+            this.bot.recordActivity(
+                name,
+                notOffered
+                    ? activityResult('skipped', 'offer-not-present')
+                    : activityResult(
+                          available ? 'confirmed' : 'unconfirmed',
+                          available ? 'quota-available' : 'quota-unavailable'
+                      )
+            )
         }
 
         this.bot.logger.debug(

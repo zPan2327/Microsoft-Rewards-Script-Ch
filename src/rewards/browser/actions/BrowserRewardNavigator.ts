@@ -6,7 +6,7 @@ import { isBrowserPageCrashed } from '../../../browser/BrowserPageHealth'
 import { HttpError } from '../../../network/HttpError'
 import type { Locator, Page, Request } from 'patchright'
 
-import { URLs } from '../../../constants/urls'
+import { URLs, isBingHost } from '../../../constants/urls'
 import type { BotContext } from '../../../core/BotContext'
 import { ActivitySkipError } from '../../shared/ActivityResult'
 import { EARN_TASK_CONTROLS, EARN_TASK_SECTIONS } from '../parsers/EarnPageParser'
@@ -553,7 +553,7 @@ export class BrowserRewardNavigator {
             if (report || request.method() !== 'POST') return
             try {
                 const url = new URL(request.url())
-                if (url.origin !== URLs.bing.origin || !url.pathname.toLowerCase().endsWith('/reportactivity')) return
+                if (!isBingHost(url.hostname) || !url.pathname.toLowerCase().endsWith('/reportactivity')) return
                 const reportedId = request.postDataJSON()?.OfferId
                 if (
                     typeof reportedId !== 'string' ||

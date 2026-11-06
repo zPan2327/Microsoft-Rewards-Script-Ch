@@ -1,6 +1,6 @@
 import { ghostClick } from '../../../browser/GhostClick'
 import type { Locator, Page } from 'patchright'
-import { URLs } from '../../../constants/urls'
+import { isBingHost } from '../../../constants/urls'
 
 const KEY_DELAY_MS = 70
 const PRE_FOCUS_PAUSE_MS = 600
@@ -41,7 +41,7 @@ export async function submitSearch(
     await Promise.all([
         page.waitForURL(
             url =>
-                url.origin === URLs.bing.origin &&
+                isBingHost(url.hostname) &&
                 url.pathname === '/search' &&
                 normalize(url.searchParams.get('q') ?? '') === normalize(query),
             { waitUntil: 'commit', timeout: remaining() }

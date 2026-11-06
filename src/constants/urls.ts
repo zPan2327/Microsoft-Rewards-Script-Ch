@@ -72,3 +72,15 @@ export const URLs = {
 } as const
 
 export const REWARDS_BASE_URL = URLs.rewards.origin
+
+/**
+ * 中国大陆网络下 www.bing.com 会被 302 重定向到 cn.bing.com。
+ * 因此“是否处于 Bing 页面”的判断必须按主机名匹配，不能比较 URLs.bing.origin，
+ * 否则等待搜索结果页的条件永远不会成立（v5 的搜索超时就是由此引起）。
+ * rewards.bing.com 属于 Rewards 后台域，不是搜索/上报页面，需排除。
+ */
+export function isBingHost(hostname: string): boolean {
+    const host = hostname.toLowerCase()
+    if (host === 'rewards.bing.com') return false
+    return host === 'bing.com' || host.endsWith('.bing.com')
+}
